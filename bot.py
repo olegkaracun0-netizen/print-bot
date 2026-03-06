@@ -22,22 +22,18 @@ import PyPDF2
 from docx import Document
 
 # ========== ИМПОРТЫ ДЛЯ ВЕБ-СЕРВЕРА ==========
-from flask import Flask, request
+from flask import Flask
 import threading
-import time
 # =============================================
 
 # ========== НАСТРОЙКИ ==========
-# Берем токен из переменных окружения Render
 TOKEN = os.environ.get("TOKEN", "8238978593:AAG-rgNUQXF8_MAkLjBgeON2FGUfHhm7YO0")
 ORDERS_FOLDER = "заказы"
 PORT = int(os.environ.get("PORT", 10000))
 
-# Контактная информация (только для сообщений пользователю)
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
-# Создаем папку для заказов
 if not os.path.exists(ORDERS_FOLDER):
     os.makedirs(ORDERS_FOLDER)
     print(f"📁 Создана папка: {ORDERS_FOLDER}")
@@ -51,7 +47,6 @@ if not os.path.exists(ORDERS_FOLDER):
     CONFIRMING_ORDER,
 ) = range(5)
 
-# Хранилище для медиа-групп
 media_groups = {}
 user_sessions = {}
 
@@ -75,12 +70,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========== FLASK ПРИЛОЖЕНИЕ ДЛЯ RENDER ==========
+# ========== FLASK ПРИЛОЖЕНИЕ ==========
 flask_app = Flask(__name__)
 
 @flask_app.route('/')
 def home():
-    return """
+    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    return f"""
     <html>
         <head>
             <title>Print Bot</title>
@@ -119,15 +115,16 @@ def home():
                 <div class="status">
                     <h2>✅ Бот работает 24/7!</h2>
                     <p class="info">📁 Папка заказов: <strong>заказы/</strong></p>
-                    <p class="info">📞 Контакт: <strong>89219805705</strong></p>
-                    <p class="info">🚚 Доставка: Самовывоз СПб, СДЭК, Яндекс</p>
-                    <p class="info">⏰ Время сервера: <strong>{}</strong></p>
+                    <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
+                    <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
+                    <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>
                 </div>
                 <p>Бот активен и принимает заказы в Telegram!</p>
+                <p>👉 <a href="/stats" style="color: white;">Статистика</a> | <a href="/health" style="color: white;">Проверка здоровья</a></p>
             </div>
         </body>
     </html>
-    """.format(datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
+    """
 
 @flask_app.route('/health')
 def health():
@@ -135,7 +132,6 @@ def health():
 
 @flask_app.route('/stats')
 def stats():
-    """Статистика работы бота"""
     try:
         orders_count = len([d for d in os.listdir(ORDERS_FOLDER) if os.path.isdir(os.path.join(ORDERS_FOLDER, d))]) if os.path.exists(ORDERS_FOLDER) else 0
         return {
@@ -148,42 +144,31 @@ def stats():
         return {"status": "error", "error": str(e)}, 500
 
 def run_flask():
-    """Запускает Flask-сервер в отдельном потоке"""
     flask_app.run(host='0.0.0.0', port=PORT)
-# =================================================
 
+# ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ЗАКАЗАМИ ==========
 def save_order_to_files(user_id, username, order_data, file_paths=None):
-    """Сохранение заказа в папку с файлами."""
     try:
-        # Создаем уникальное имя папки для заказа
         clean_username = re.sub(r'[^\w\s-]', '', username) or f"user_{user_id}"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         order_folder_name = f"{clean_username}_{timestamp}"
         order_folder = os.path.join(ORDERS_FOLDER, order_folder_name)
         
-        # Создаем папку для заказа
         os.makedirs(order_folder, exist_ok=True)
         logger.info(f"📁 Создана папка заказа: {order_folder}")
         
         saved_files = []
         
-        # Сохраняем файлы, если они есть
         if file_paths and isinstance(file_paths, list):
             for i, file_info in enumerate(file_paths, 1):
                 temp_file = file_info.get('path')
                 original_filename = file_info.get('name', f'file_{i}')
                 
                 if temp_file and os.path.exists(temp_file):
-                    # Получаем расширение файла
-                    file_ext = os.path.splitext(original_filename)[1]
-                    if not file_ext:
-                        file_ext = ".bin"
-                    
-                    # Новое имя файла в папке заказа
+                    file_ext = os.path.splitext(original_filename)[1] or ".bin"
                     new_filename = f"{i}_{original_filename}"
                     new_file_path = os.path.join(order_folder, new_filename)
                     
-                    # Копируем файл
                     shutil.copy2(temp_file, new_file_path)
                     saved_files.append({
                         'original_name': original_filename,
@@ -193,7 +178,6 @@ def save_order_to_files(user_id, username, order_data, file_paths=None):
                     })
                     logger.info(f"📄 Файл {i} скопирован: {new_file_path}")
         
-        # Сохраняем информацию о заказе
         info_filename = os.path.join(order_folder, "информация_о_заказе.txt")
         
         total_pages_all = order_data.get('quantity', 1) * order_data.get('total_page_count', 1)
@@ -205,7 +189,6 @@ def save_order_to_files(user_id, username, order_data, file_paths=None):
             color_names = {"bw": "Черно-белая", "color": "Цветная"}
             type_text = f"Тип печати: {color_names[order_data.get('color', 'bw')]}"
         
-        # Формируем список сохраненных файлов
         files_list = ""
         for i, f in enumerate(saved_files, 1):
             file_icon = "📸" if f['original_name'].lower().endswith(('.jpg', '.jpeg', '.png')) else "📄"
@@ -252,7 +235,6 @@ def save_order_to_files(user_id, username, order_data, file_paths=None):
         return False, None, None
 
 def calculate_price(price_dict, total_pages):
-    """Рассчитывает стоимость на основе количества листов."""
     for (min_q, max_q), price in price_dict.items():
         if min_q <= total_pages <= max_q:
             return price * total_pages
@@ -267,7 +249,6 @@ def estimate_delivery_time(total_items):
         return "3 дня"
 
 async def download_file(file, file_name, context):
-    """Скачивает файл и возвращает путь к нему."""
     try:
         temp_dir = tempfile.mkdtemp()
         temp_file_path = os.path.join(temp_dir, file_name)
@@ -281,7 +262,6 @@ async def download_file(file, file_name, context):
         return None, None
 
 async def count_pages_in_file(file_path, file_name):
-    """Подсчет листов в файле."""
     try:
         if file_name.lower().endswith('.pdf'):
             with open(file_path, 'rb') as pdf_file:
@@ -307,7 +287,6 @@ async def count_pages_in_file(file_path, file_name):
             if tables_count > 0:
                 estimated_pages += tables_count // 2
             
-            logger.info(f"📄 Word документ: {file_name}, примерно {estimated_pages} листов")
             return estimated_pages
         else:
             return 1
@@ -322,9 +301,12 @@ def extract_number_from_text(text):
         return int(numbers[0])
     return None
 
+# ========== ОБРАБОТЧИКИ TELEGRAM ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
+    
+    logger.info(f"✅ Получена команда /start от пользователя {user_id} (@{user.username})")
     
     if user_id in user_sessions:
         if "temp_dirs" in user_sessions[user_id]:
@@ -359,6 +341,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    logger.info(f"📎 Получен файл от пользователя {user_id}")
     
     if update.message.media_group_id:
         return await handle_media_group(update, context)
@@ -390,6 +373,7 @@ async def handle_media_group(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def process_multiple_files(user_id, messages, context):
     try:
         username = messages[0].from_user.username or messages[0].from_user.first_name
+        logger.info(f"📦 Обработка группы из {len(messages)} файлов от {username}")
         
         if user_id not in user_sessions:
             user_sessions[user_id] = {
@@ -448,8 +432,6 @@ async def process_multiple_files(user_id, messages, context):
             user_sessions[user_id]["temp_dirs"].append(temp_dir)
             user_sessions[user_id]["total_page_count"] += page_count
             file_types.append(file_type)
-            
-            logger.info(f"📊 Файл {file_name}: {page_count} листов")
         
         if doc_count > 0:
             main_type = "doc"
@@ -490,7 +472,7 @@ async def process_multiple_files(user_id, messages, context):
     except Exception as e:
         logger.error(f"Ошибка в process_multiple_files: {e}")
         logger.error(traceback.format_exc())
-        await messages[0].reply_text("Произошла ошибка при обработке файлов. Попробуйте еще раз.")
+        await messages[0].reply_text("Произошла ошибка при обработке файлов.")
         return WAITING_FOR_FILE
 
 async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -510,7 +492,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             elif file_name_lower.endswith(('.docx', '.doc')):
                 file_type = "doc"
             else:
-                await update.message.reply_text("❌ Неподдерживаемый формат. Отправьте JPG, PNG, PDF или DOC/DOCX.")
+                await update.message.reply_text("❌ Неподдерживаемый формат.")
                 return WAITING_FOR_FILE
         elif update.message.photo:
             file = update.message.photo[-1]
@@ -521,11 +503,10 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         file_path, temp_dir = await download_file(file, file_name, context)
         if not file_path:
-            await update.message.reply_text("❌ Ошибка при загрузке файла. Попробуйте еще раз.")
+            await update.message.reply_text("❌ Ошибка при загрузке файла.")
             return WAITING_FOR_FILE
         
         page_count = await count_pages_in_file(file_path, file_name)
-        logger.info(f"📊 Файл {file_name}: {page_count} листов")
         
         if user_id not in user_sessions:
             user_sessions[user_id] = {
@@ -574,8 +555,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
     except Exception as e:
         logger.error(f"Ошибка в handle_single_file: {e}")
-        logger.error(traceback.format_exc())
-        await update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
+        await update.message.reply_text("Произошла ошибка.")
         return WAITING_FOR_FILE
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -584,13 +564,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
     
-    logger.info("=" * 50)
-    logger.info(f"🔘 Получен callback: {data}")
-    logger.info(f"👤 От пользователя: {user_id}")
-    logger.info("=" * 50)
+    logger.info(f"🔘 Получен callback: {data} от пользователя {user_id}")
     
     if data == "new_order":
-        logger.info("🔄 Нажата кнопка НОВЫЙ ЗАКАЗ")
         try:
             if user_id in user_sessions:
                 if "temp_dirs" in user_sessions[user_id]:
@@ -619,7 +595,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return WAITING_FOR_FILE
     
     if data == "cancel_order":
-        logger.info("❌ Отмена заказа")
         try:
             if user_id in user_sessions:
                 if "temp_dirs" in user_sessions[user_id]:
@@ -636,45 +611,32 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await context.bot.send_message(
             chat_id=user_id,
-            text="❌ Заказ отменен.\nЧтобы начать новый заказ, отправьте /start"
+            text="❌ Заказ отменен."
         )
         return WAITING_FOR_FILE
     
     if data.startswith("photo_"):
         format_type = data.split("_")[1]
-        
-        if user_id not in user_sessions:
-            user_sessions[user_id] = {}
-        
         user_sessions[user_id]["format"] = format_type
-        
         files_count = len(user_sessions[user_id].get("temp_files", []))
         format_names = {"small": "Малый", "medium": "Средний", "large": "Большой"}
         
         text = (f"Вы выбрали: {format_names[format_type]} формат для {files_count} файлов\n\n"
-                f"Сколько копий каждого файла напечатать?\n"
-                f"Введите число или выберите из вариантов:")
+                f"Сколько копий каждого файла напечатать?")
         
         await query.message.edit_text(text, reply_markup=get_quantity_keyboard())
         return ENTERING_QUANTITY
     
     if data.startswith("doc_"):
         doc_type = data.split("_")[1]
-        
-        if user_id not in user_sessions:
-            user_sessions[user_id] = {}
-        
         user_sessions[user_id]["color"] = doc_type
-        
         total_pages = user_sessions[user_id].get("total_page_count", 1)
         files_count = len(user_sessions[user_id].get("temp_files", []))
-        
         color_names = {"bw": "Черно-белая", "color": "Цветная"}
         
         text = (f"Вы выбрали: {color_names[doc_type]} печать\n"
-                f"Всего листов во всех файлах: {total_pages}\n\n"
-                f"Сколько копий каждого документа напечатать?\n"
-                f"Введите число или выберите из вариантов:")
+                f"Всего листов: {total_pages}\n\n"
+                f"Сколько копий напечатать?")
         
         await query.message.edit_text(text, reply_markup=get_quantity_keyboard())
         return ENTERING_QUANTITY
@@ -682,10 +644,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("qty_"):
         try:
             quantity = int(data.split("_")[1])
-            
-            if user_id not in user_sessions:
-                user_sessions[user_id] = {}
-            
             user_sessions[user_id]["quantity"] = quantity
             session = user_sessions[user_id]
             
@@ -705,7 +663,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     total_pages_all += file['page_count'] * quantity
                     
                     detailed_text += f"📸 Файл {i}: `{file['name'][:30]}...`\n"
-                    detailed_text += f"   • {file['page_count']} листов × {quantity} копий = {file['page_count'] * quantity} листов\n"
+                    detailed_text += f"   • {file['page_count']} л. × {quantity} коп. = {file['page_count'] * quantity} л.\n"
                     detailed_text += f"   • {file_total // quantity} руб./копия\n"
                     detailed_text += f"   • **{file_total} руб.**\n\n"
                 else:
@@ -719,7 +677,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     price_per_page = file_total // file_pages if file_pages > 0 else 0
                     
                     detailed_text += f"📄 Файл {i}: `{file['name'][:30]}...`\n"
-                    detailed_text += f"   • {file['page_count']} листов × {quantity} копий = {file_pages} листов\n"
+                    detailed_text += f"   • {file['page_count']} л. × {quantity} коп. = {file_pages} л.\n"
                     detailed_text += f"   • {price_per_page} руб./лист\n"
                     detailed_text += f"   • **{file_total} руб.**\n\n"
             
@@ -732,13 +690,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = (f"{detailed_text}\n"
                    f"📋 **ПРОВЕРЬТЕ ЗАКАЗ:**\n\n"
                    f"📦 Всего файлов: {len(files)}\n"
-                   f"📊 Всего листов к печати: {total_pages_all}\n"
-                   f"💰 **ИТОГОВАЯ СУММА: {total_sum} руб.**\n"
+                   f"📊 Всего листов: {total_pages_all}\n"
+                   f"💰 **ИТОГО: {total_sum} руб.**\n"
                    f"⏳ **Срок: {session['delivery']}**\n\n"
                    "Всё верно?")
             
             keyboard = [
-                [InlineKeyboardButton("✅ Подтвердить заказ", callback_data="confirm_order"),
+                [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_order"),
                  InlineKeyboardButton("❌ Отменить", callback_data="cancel_order")]
             ]
             
@@ -758,12 +716,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             session = user_sessions.get(user_id, {})
             
-            if not session:
-                await query.edit_message_text("Ошибка: сессия не найдена")
-                return WAITING_FOR_FILE
-            
-            if "temp_files" not in session or not session["temp_files"]:
-                await query.edit_message_text("Ошибка: файлы не найдены. Начните заново.")
+            if not session or "temp_files" not in session:
+                await query.edit_message_text("Ошибка: данные не найдены")
                 return WAITING_FOR_FILE
             
             success, order_folder, saved_files = save_order_to_files(
@@ -778,32 +732,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             total_sum = session.get('total', 0)
             
             if success and saved_files:
-                folder_message = f"\n📁 Папка заказа: `{order_folder}`"
-                files_message = f"\n📄 Сохранено файлов: {len(saved_files)}"
+                folder_message = f"\n📁 Папка: `{order_folder}`"
+                files_message = f"\n📄 Файлов: {len(saved_files)}"
             else:
-                folder_message = "\n⚠️ Не удалось сохранить файлы"
+                folder_message = "\n⚠️ Ошибка сохранения"
                 files_message = ""
             
             text = (
-                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
-                f"👤 Заказчик: {session['user_info']['first_name']}\n"
+                "✅ **ЗАКАЗ ОФОРМЛЕН!**\n\n"
+                f"👤 {session['user_info']['first_name']}\n"
                 f"📦 Файлов: {files_count}\n"
-                f"📊 Всего листов к печати: {total_pages}\n"
-                f"💰 Сумма к оплате: {total_sum} руб.\n"
-                f"⏳ Срок выполнения: {session['delivery']}\n"
+                f"📊 Листов: {total_pages}\n"
+                f"💰 Сумма: {total_sum} руб.\n"
+                f"⏳ Срок: {session['delivery']}\n"
                 f"{files_message}"
                 f"{folder_message}\n\n"
-                "📞 **Контактный телефон:**\n"
-                f"`{CONTACT_PHONE}`\n\n"
-                "🚚 **Способы получения:**\n"
-                f"• Самовывоз СПб\n"
-                "• СДЭК\n"
-                "• Яндекс Доставка\n\n"
-                "Свяжитесь с нами для уточнения деталей доставки!\n"
-                "Спасибо за заказ! 😊"
+                f"📞 {CONTACT_PHONE}\n"
+                f"🚚 {DELIVERY_OPTIONS}\n\n"
+                "Спасибо за заказ!"
             )
             
-            keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
+            keyboard = [[InlineKeyboardButton("🔄 Новый заказ", callback_data="new_order")]]
             
             try:
                 await query.message.delete()
@@ -828,10 +777,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
         except Exception as e:
             logger.error(f"Ошибка в confirm_order: {e}")
-            logger.error(traceback.format_exc())
             await context.bot.send_message(
                 chat_id=user_id,
-                text="Произошла ошибка при сохранении заказа."
+                text="Ошибка при сохранении заказа."
             )
             return WAITING_FOR_FILE
     
@@ -860,8 +808,7 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
     
     if quantity is None or quantity < 1 or quantity > 1000:
         await update.message.reply_text(
-            "Пожалуйста, введите число от 1 до 1000\n"
-            "Или выберите из кнопок:",
+            "Введите число от 1 до 1000:",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -888,7 +835,7 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
             total_pages_all += file['page_count'] * quantity
             
             detailed_text += f"📸 Файл {i}: `{file['name'][:30]}...`\n"
-            detailed_text += f"   • {file['page_count']} листов × {quantity} копий = {file['page_count'] * quantity} листов\n"
+            detailed_text += f"   • {file['page_count']} л. × {quantity} коп. = {file['page_count'] * quantity} л.\n"
             detailed_text += f"   • {file_total // quantity} руб./копия\n"
             detailed_text += f"   • **{file_total} руб.**\n\n"
         else:
@@ -902,7 +849,7 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
             price_per_page = file_total // file_pages if file_pages > 0 else 0
             
             detailed_text += f"📄 Файл {i}: `{file['name'][:30]}...`\n"
-            detailed_text += f"   • {file['page_count']} листов × {quantity} копий = {file_pages} листов\n"
+            detailed_text += f"   • {file['page_count']} л. × {quantity} коп. = {file_pages} л.\n"
             detailed_text += f"   • {price_per_page} руб./лист\n"
             detailed_text += f"   • **{file_total} руб.**\n\n"
     
@@ -913,13 +860,13 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
     text = (f"{detailed_text}\n"
            f"📋 **ПРОВЕРЬТЕ ЗАКАЗ:**\n\n"
            f"📦 Всего файлов: {len(files)}\n"
-           f"📊 Всего листов к печати: {total_pages_all}\n"
-           f"💰 **ИТОГОВАЯ СУММА: {total_sum} руб.**\n"
+           f"📊 Всего листов: {total_pages_all}\n"
+           f"💰 **ИТОГО: {total_sum} руб.**\n"
            f"⏳ **Срок: {session['delivery']}**\n\n"
            "Всё верно?")
     
     keyboard = [
-        [InlineKeyboardButton("✅ Подтвердить заказ", callback_data="confirm_order"),
+        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_order"),
          InlineKeyboardButton("❌ Отменить", callback_data="cancel_order")]
     ]
     
@@ -932,72 +879,45 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def chat_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    username = update.effective_user.username or update.effective_user.first_name
     text = update.message.text.lower()
+    logger.info(f"💬 Получено сообщение от {user_id}: {text}")
     
-    if 'цена' in text or 'price' in text or 'стоимость' in text:
+    if 'цена' in text:
         await update.message.reply_text(
-            "💰 **Наши цены:**\n\n"
-            "📷 **Фото:**\n"
-            "• Малый формат (A6/10x15): 18-35₽/шт\n"
-            "• Средний формат (13x18/15x21): 35-65₽/шт\n"
-            "• Большой формат (A4/21x30): 120-200₽/шт\n\n"
-            "📄 **Документы (A4):**\n"
-            "• Черно-белые: 10-25₽/лист\n"
-            "• Цветные: 20-50₽/лист\n\n"
-            "Цена зависит от количества листов!"
+            "💰 **Цены:**\n\n"
+            "📷 Фото: 18-200₽/шт\n"
+            "📄 Документы: 10-50₽/лист"
         )
-    elif 'срок' in text or 'time' in text or 'доставк' in text:
+    elif 'срок' in text:
         await update.message.reply_text(
-            f"⏳ Срок выполнения: 1-3 дня в зависимости от количества листов\n\n"
-            f"🚚 **Доставка:**\n"
-            f"• Самовывоз СПб\n"
-            f"• СДЭК\n"
-            f"• Яндекс Доставка\n\n"
-            f"📞 Контактный телефон: {CONTACT_PHONE}"
-        )
-    elif 'контакт' in text or 'телефон' in text or 'phone' in text:
-        await update.message.reply_text(f"📞 Контактный телефон: `{CONTACT_PHONE}`")
-    elif 'доставк' in text or 'самовывоз' in text or 'delivery' in text:
-        await update.message.reply_text(
-            f"🚚 **Способы получения:**\n"
-            f"• Самовывоз СПб\n"
-            f"• СДЭК\n"
-            f"• Яндекс Доставка"
-        )
-    elif 'привет' in text or 'hello' in text or 'здравств' in text:
-        await update.message.reply_text(f"Привет! 👋 Отправьте файл для печати")
-    elif 'несколько' in text or 'много' in text:
-        await update.message.reply_text(
-            "✨ Да, вы можете отправить **несколько файлов** одним сообщением!\n"
-            "Я посчитаю листы в каждом документе и рассчитаю общую стоимость."
+            f"⏳ Срок: 1-3 дня\n"
+            f"📞 {CONTACT_PHONE}"
         )
     else:
         await update.message.reply_text(
-            "Я бот для печати. 📸🖨️\n\n"
-            "📌 **Что я умею:**\n"
-            "• Считать листы в PDF и Word\n"
-            "• Принимать несколько файлов сразу\n"
-            "• Рассчитывать стоимость за листы\n\n"
-            f"📞 Контакт: `{CONTACT_PHONE}`\n"
-            f"🚚 Доставка: Самовывоз СПб, СДЭК, Яндекс\n\n"
-            "Отправьте файл(ы) для заказа!"
+            "Отправьте файлы для заказа!"
         )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Ошибка: {context.error}")
-    logger.error(traceback.format_exc())
-    try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "Извините, произошла ошибка. Попробуйте позже или начните заново с /start"
-            )
-    except:
-        pass
 
+# ========== ЗАПУСК БОТА ==========
 async def run_bot():
-    """Запускает Telegram бота"""
     try:
+        # ШАГ 1: Принудительно удаляем веб-хук перед запуском
+        print("🔄 Проверка и удаление веб-хука...")
+        temp_app = Application.builder().token(TOKEN).build()
+        webhook_info = await temp_app.bot.get_webhook_info()
+        
+        if webhook_info.url:
+            print(f"⚠️ Найден веб-хук: {webhook_info.url}")
+            await temp_app.bot.delete_webhook(drop_pending_updates=True)
+            print("✅ Веб-хук удалён!")
+        else:
+            print("✅ Веб-хук не установлен")
+        
+        # ШАГ 2: Создаём основное приложение бота
+        print("🚀 Запуск бота в режиме polling...")
         app = Application.builder().token(TOKEN).build()
         
         conv_handler = ConversationHandler(
@@ -1013,11 +933,9 @@ async def run_bot():
                 ],
                 SELECTING_PHOTO_FORMAT: [
                     CallbackQueryHandler(button_handler),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response),
                 ],
                 SELECTING_DOC_TYPE: [
                     CallbackQueryHandler(button_handler),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response),
                 ],
                 ENTERING_QUANTITY: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quantity_input),
@@ -1025,7 +943,6 @@ async def run_bot():
                 ],
                 CONFIRMING_ORDER: [
                     CallbackQueryHandler(button_handler),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response),
                 ],
             },
             fallbacks=[CommandHandler("start", start)],
@@ -1037,40 +954,39 @@ async def run_bot():
         
         print("=" * 60)
         print("✅ БОТ ЗАПУЩЕН!")
-        print(f"📁 Заказы сохраняются в папку: {ORDERS_FOLDER}")
-        print(f"📞 Контактный телефон: {CONTACT_PHONE}")
-        print(f"🚚 Доставка: {DELIVERY_OPTIONS}")
-        print(f"🌐 Веб-интерфейс: http://localhost:{PORT}")
-        print("=" * 60)
-        print("🔄 Бот работает в режиме long polling...")
+        print(f"📁 Папка заказов: {ORDERS_FOLDER}")
+        print(f"📞 Телефон: {CONTACT_PHONE}")
+        print(f"🤖 Бот готов принимать сообщения!")
         print("=" * 60)
         
+        # ШАГ 3: Запускаем polling
         await app.run_polling(
             allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True,
-            close_loop=False
+            drop_pending_updates=True
         )
     except Exception as e:
-        logger.error(f"Критическая ошибка в run_bot: {e}")
+        logger.error(f"❌ Критическая ошибка в run_bot: {e}")
         logger.error(traceback.format_exc())
         sys.exit(1)
 
 def main():
-    """Главная функция"""
     try:
+        # Запускаем Flask в отдельном потоке (для веб-страниц и health checks)
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
-        print(f"🌐 Flask сервер запущен на порту {PORT}")
+        print(f"🌐 Веб-сервер Flask запущен на порту {PORT}")
+        print(f"🌍 Откройте в браузере: https://print-bot-o89e.onrender.com")
         
+        # Запускаем бота в основном потоке
         asyncio.run(run_bot())
     except KeyboardInterrupt:
         print("\n👋 Бот остановлен пользователем")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Критическая ошибка в main: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
+
 
 

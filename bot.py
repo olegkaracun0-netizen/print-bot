@@ -22,14 +22,13 @@ import PyPDF2
 from docx import Document
 
 # ========== ИМПОРТЫ ДЛЯ ВЕБ-СЕРВЕРА ==========
-from flask import Flask, request, jsonify
+from flask import Flask, request
 # =============================================
 
 # ========== НАСТРОЙКИ ==========
 TOKEN = os.environ.get("TOKEN", "8238978593:AAG-rgNUQXF8_MAkLjBgeON2FGUfHhm7YO0")
 ORDERS_FOLDER = "заказы"
 PORT = int(os.environ.get("PORT", 10000))
-# ВАЖНО: Render автоматически добавляет эту переменную
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 
 CONTACT_PHONE = "89219805705"
@@ -50,7 +49,7 @@ if not os.path.exists(ORDERS_FOLDER):
 
 media_groups = {}
 user_sessions = {}
-bot_app = None  # Глобальная переменная для приложения бота
+bot_app = None  # Будет инициализирован позже
 
 # ========== ЦЕНЫ ==========
 PHOTO_PRICES = {
@@ -78,6 +77,7 @@ flask_app = Flask(__name__)
 @flask_app.route('/')
 def home():
     current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    webhook_status = "✅ Установлен" if bot_app is not None else "❌ Не установлен"
     return f"""
     <html>
         <head>
@@ -109,6 +109,8 @@ def home():
                 .info {{ 
                     margin: 10px 0; 
                 }}
+                .good {{ color: #90EE90; }}
+                .bad {{ color: #FFB6C1; }}
             </style>
         </head>
         <body>
@@ -120,7 +122,7 @@ def home():
                     <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
                     <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
                     <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>
-                    <p class="info">🌐 Webhook URL: <strong>{RENDER_EXTERNAL_URL}/webhook</strong></p>
+                    <p class="info">🌐 Webhook: <strong class="{'good' if bot_app else 'bad'}">{webhook_status}</strong></p>
                 </div>
                 <p>Бот активен и принимает заказы в Telegram!</p>
                 <p>👉 <a href="/stats" style="color: white;">Статистика</a> | <a href="/health" style="color: white;">Проверка здоровья</a></p>
@@ -131,8 +133,7 @@ def home():
 
 @flask_app.route('/health')
 def health():
-    """Эндпоинт для проверки здоровья (Render проверяет его каждые 5 минут)"""
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}, 200
+    return {"status": "ok", "timestamp": datetime.now().isoformat(), "bot_ready": bot_app is not None}, 200
 
 @flask_app.route('/stats')
 def stats():
@@ -143,7 +144,7 @@ def stats():
             "orders_count": orders_count,
             "active_sessions": len(user_sessions),
             "uptime": "24/7",
-            "webhook_set": bot_app is not None
+            "bot_ready": bot_app is not None
         }, 200
     except Exception as e:
         return {"status": "error", "error": str(e)}, 500
@@ -151,6 +152,8 @@ def stats():
 @flask_app.route('/webhook', methods=['POST'])
 def webhook():
     """Эндпоинт для приема обновлений от Telegram"""
+    global bot_app
+    
     if bot_app is None:
         logger.error("❌ Бот не инициализирован")
         return "Bot not initialized", 500
@@ -161,8 +164,12 @@ def webhook():
         if not update_data:
             return "No data", 400
         
-        # Создаем объект Update и кладем в очередь
+        logger.info(f"📩 Получено обновление: {update_data.get('update_id')}")
+        
+        # Создаем объект Update и обрабатываем
         update = Update.de_json(update_data, bot_app.bot)
+        
+        # Запускаем обработку в фоне
         asyncio.run_coroutine_threadsafe(
             bot_app.process_update(update),
             bot_app.loop
@@ -929,102 +936,99 @@ async def chat_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Ошибка: {context.error}")
 
-# ========== НАСТРОЙКА ВЕБ-ХУКА ==========
-async def setup_webhook(app):
-    """Устанавливает веб-хук для бота"""
-    webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
-    logger.info(f"🔧 Установка веб-хука на {webhook_url}")
-    
-    try:
-        # Удаляем старый веб-хук
-        await app.bot.delete_webhook(drop_pending_updates=True)
-        logger.info("✅ Старый веб-хук удалён")
-        
-        # Устанавливаем новый
-        await app.bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=Update.ALL_TYPES
-        )
-        logger.info(f"✅ Веб-хук установлен на {webhook_url}")
-        
-        # Проверяем
-        webhook_info = await app.bot.get_webhook_info()
-        logger.info(f"📋 Информация о веб-хуке: {webhook_info.url}")
-        
-        return True
-    except Exception as e:
-        logger.error(f"❌ Ошибка установки веб-хука: {e}")
-        logger.error(traceback.format_exc())
-        return False
-
-# ========== ЗАПУСК БОТА ==========
-async def initialize_bot():
+# ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
+async def init_bot():
     """Инициализирует бота и устанавливает веб-хук"""
     global bot_app
     
-    logger.info("🚀 Инициализация бота...")
-    
-    # Создаём приложение
-    bot_app = Application.builder().token(TOKEN).build()
-    
-    # Добавляем обработчики
-    conv_handler = ConversationHandler(
-        entry_points=[
-            MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
-            CommandHandler("start", start),
-        ],
-        states={
-            WAITING_FOR_FILE: [
+    try:
+        logger.info("🚀 Инициализация бота...")
+        
+        # Создаём приложение
+        bot_app = Application.builder().token(TOKEN).build()
+        
+        # Добавляем обработчики
+        conv_handler = ConversationHandler(
+            entry_points=[
                 MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response),
-                CallbackQueryHandler(button_handler),
+                CommandHandler("start", start),
             ],
-            SELECTING_PHOTO_FORMAT: [
-                CallbackQueryHandler(button_handler),
-            ],
-            SELECTING_DOC_TYPE: [
-                CallbackQueryHandler(button_handler),
-            ],
-            ENTERING_QUANTITY: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quantity_input),
-                CallbackQueryHandler(button_handler),
-            ],
-            CONFIRMING_ORDER: [
-                CallbackQueryHandler(button_handler),
-            ],
-        },
-        fallbacks=[CommandHandler("start", start)],
-    )
-    
-    bot_app.add_handler(conv_handler)
-    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response))
-    bot_app.add_error_handler(error_handler)
-    
-    # Инициализируем приложение
-    await bot_app.initialize()
-    await bot_app.start()
-    
-    # Устанавливаем веб-хук
-    if RENDER_EXTERNAL_URL:
-        await setup_webhook(bot_app)
-    else:
-        logger.warning("⚠️ RENDER_EXTERNAL_URL не задан, веб-хук не установлен")
-    
-    logger.info("✅ Бот инициализирован и готов к работе!")
-    return bot_app
+            states={
+                WAITING_FOR_FILE: [
+                    MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response),
+                    CallbackQueryHandler(button_handler),
+                ],
+                SELECTING_PHOTO_FORMAT: [
+                    CallbackQueryHandler(button_handler),
+                ],
+                SELECTING_DOC_TYPE: [
+                    CallbackQueryHandler(button_handler),
+                ],
+                ENTERING_QUANTITY: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quantity_input),
+                    CallbackQueryHandler(button_handler),
+                ],
+                CONFIRMING_ORDER: [
+                    CallbackQueryHandler(button_handler),
+                ],
+            },
+            fallbacks=[CommandHandler("start", start)],
+        )
+        
+        bot_app.add_handler(conv_handler)
+        bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response))
+        bot_app.add_error_handler(error_handler)
+        
+        # Инициализируем приложение
+        await bot_app.initialize()
+        await bot_app.start()
+        
+        # Устанавливаем веб-хук
+        if RENDER_EXTERNAL_URL:
+            webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
+            logger.info(f"🔧 Установка веб-хука на {webhook_url}")
+            
+            # Удаляем старый веб-хук
+            await bot_app.bot.delete_webhook(drop_pending_updates=True)
+            
+            # Устанавливаем новый
+            await bot_app.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=Update.ALL_TYPES
+            )
+            
+            # Проверяем
+            webhook_info = await bot_app.bot.get_webhook_info()
+            logger.info(f"✅ Веб-хук установлен: {webhook_info.url}")
+        else:
+            logger.warning("⚠️ RENDER_EXTERNAL_URL не задан")
+        
+        logger.info("✅ Бот готов к работе!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации бота: {e}")
+        logger.error(traceback.format_exc())
+        bot_app = None
+        return False
 
-# ========== ТОЧКА ВХОДА ==========
+# ========== ЗАПУСК ==========
 if __name__ == "__main__":
-    # Запускаем инициализацию бота в отдельном потоке
+    # Создаём event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
     # Инициализируем бота
-    loop.run_until_complete(initialize_bot())
+    init_success = loop.run_until_complete(init_bot())
     
-    # Запускаем Flask (он будет работать в этом же потоке)
-    print(f"🌐 Запуск Flask на порту {PORT}")
-    flask_app.run(host='0.0.0.0', port=PORT)
+    if init_success:
+        print(f"🌐 Запуск Flask на порту {PORT}")
+        flask_app.run(host='0.0.0.0', port=PORT)
+    else:
+        print("❌ Не удалось инициализировать бота")
+        sys.exit(1)
+
 
 
 

@@ -8,8 +8,6 @@ import shutil
 import traceback
 import asyncio
 import sys
-import threading
-import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -24,13 +22,15 @@ import PyPDF2
 from docx import Document
 
 # ========== ИМПОРТЫ ДЛЯ ВЕБ-СЕРВЕРА ==========
-from flask import Flask
+from flask import Flask, request, jsonify
 # =============================================
 
 # ========== НАСТРОЙКИ ==========
 TOKEN = os.environ.get("TOKEN", "8238978593:AAG-rgNUQXF8_MAkLjBgeON2FGUfHhm7YO0")
 ORDERS_FOLDER = "заказы"
 PORT = int(os.environ.get("PORT", 10000))
+# ВАЖНО: Render автоматически добавляет эту переменную
+RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
@@ -50,6 +50,7 @@ if not os.path.exists(ORDERS_FOLDER):
 
 media_groups = {}
 user_sessions = {}
+bot_app = None  # Глобальная переменная для приложения бота
 
 # ========== ЦЕНЫ ==========
 PHOTO_PRICES = {
@@ -119,6 +120,7 @@ def home():
                     <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
                     <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
                     <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>
+                    <p class="info">🌐 Webhook URL: <strong>{RENDER_EXTERNAL_URL}/webhook</strong></p>
                 </div>
                 <p>Бот активен и принимает заказы в Telegram!</p>
                 <p>👉 <a href="/stats" style="color: white;">Статистика</a> | <a href="/health" style="color: white;">Проверка здоровья</a></p>
@@ -129,6 +131,7 @@ def home():
 
 @flask_app.route('/health')
 def health():
+    """Эндпоинт для проверки здоровья (Render проверяет его каждые 5 минут)"""
     return {"status": "ok", "timestamp": datetime.now().isoformat()}, 200
 
 @flask_app.route('/stats')
@@ -139,14 +142,37 @@ def stats():
             "status": "ok",
             "orders_count": orders_count,
             "active_sessions": len(user_sessions),
-            "uptime": "24/7"
+            "uptime": "24/7",
+            "webhook_set": bot_app is not None
         }, 200
     except Exception as e:
         return {"status": "error", "error": str(e)}, 500
 
-def run_flask():
-    """Запускает Flask-сервер"""
-    flask_app.run(host='0.0.0.0', port=PORT)
+@flask_app.route('/webhook', methods=['POST'])
+def webhook():
+    """Эндпоинт для приема обновлений от Telegram"""
+    if bot_app is None:
+        logger.error("❌ Бот не инициализирован")
+        return "Bot not initialized", 500
+    
+    try:
+        # Получаем обновление от Telegram
+        update_data = request.get_json()
+        if not update_data:
+            return "No data", 400
+        
+        # Создаем объект Update и кладем в очередь
+        update = Update.de_json(update_data, bot_app.bot)
+        asyncio.run_coroutine_threadsafe(
+            bot_app.process_update(update),
+            bot_app.loop
+        )
+        
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"❌ Ошибка в webhook: {e}")
+        logger.error(traceback.format_exc())
+        return "Error", 500
 
 # ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ЗАКАЗАМИ ==========
 def save_order_to_files(user_id, username, order_data, file_paths=None):
@@ -903,119 +929,103 @@ async def chat_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Ошибка: {context.error}")
 
-# ========== ЗАПУСК БОТА ==========
-async def run_bot():
-    """Основная функция бота"""
-    try:
-        # Создаём приложение
-        app = Application.builder().token(TOKEN).build()
-        
-        # Добавляем обработчики
-        conv_handler = ConversationHandler(
-            entry_points=[
-                MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
-                CommandHandler("start", start),
-            ],
-            states={
-                WAITING_FOR_FILE: [
-                    MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response),
-                    CallbackQueryHandler(button_handler),
-                ],
-                SELECTING_PHOTO_FORMAT: [
-                    CallbackQueryHandler(button_handler),
-                ],
-                SELECTING_DOC_TYPE: [
-                    CallbackQueryHandler(button_handler),
-                ],
-                ENTERING_QUANTITY: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quantity_input),
-                    CallbackQueryHandler(button_handler),
-                ],
-                CONFIRMING_ORDER: [
-                    CallbackQueryHandler(button_handler),
-                ],
-            },
-            fallbacks=[CommandHandler("start", start)],
-        )
-        
-        app.add_handler(conv_handler)
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response))
-        app.add_error_handler(error_handler)
-        
-        print("✅ Бот запущен и готов к работе!")
-        print("=" * 60)
-        
-        # Запускаем polling
-        await app.run_polling(
-            allowed_updates=Update.ALL_TYPES,
-            drop_pending_updates=True
-        )
-    except Exception as e:
-        logger.error(f"❌ Критическая ошибка в run_bot: {e}")
-        logger.error(traceback.format_exc())
-
-def run_bot_in_thread():
-    """Запускает бота в отдельном потоке с новым event loop"""
-    print("🚀 Запуск Telegram бота в фоновом потоке...")
+# ========== НАСТРОЙКА ВЕБ-ХУКА ==========
+async def setup_webhook(app):
+    """Устанавливает веб-хук для бота"""
+    webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
+    logger.info(f"🔧 Установка веб-хука на {webhook_url}")
     
-    # Создаём новый event loop для этого потока
+    try:
+        # Удаляем старый веб-хук
+        await app.bot.delete_webhook(drop_pending_updates=True)
+        logger.info("✅ Старый веб-хук удалён")
+        
+        # Устанавливаем новый
+        await app.bot.set_webhook(
+            url=webhook_url,
+            allowed_updates=Update.ALL_TYPES
+        )
+        logger.info(f"✅ Веб-хук установлен на {webhook_url}")
+        
+        # Проверяем
+        webhook_info = await app.bot.get_webhook_info()
+        logger.info(f"📋 Информация о веб-хуке: {webhook_info.url}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка установки веб-хука: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+# ========== ЗАПУСК БОТА ==========
+async def initialize_bot():
+    """Инициализирует бота и устанавливает веб-хук"""
+    global bot_app
+    
+    logger.info("🚀 Инициализация бота...")
+    
+    # Создаём приложение
+    bot_app = Application.builder().token(TOKEN).build()
+    
+    # Добавляем обработчики
+    conv_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
+            CommandHandler("start", start),
+        ],
+        states={
+            WAITING_FOR_FILE: [
+                MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response),
+                CallbackQueryHandler(button_handler),
+            ],
+            SELECTING_PHOTO_FORMAT: [
+                CallbackQueryHandler(button_handler),
+            ],
+            SELECTING_DOC_TYPE: [
+                CallbackQueryHandler(button_handler),
+            ],
+            ENTERING_QUANTITY: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quantity_input),
+                CallbackQueryHandler(button_handler),
+            ],
+            CONFIRMING_ORDER: [
+                CallbackQueryHandler(button_handler),
+            ],
+        },
+        fallbacks=[CommandHandler("start", start)],
+    )
+    
+    bot_app.add_handler(conv_handler)
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response))
+    bot_app.add_error_handler(error_handler)
+    
+    # Инициализируем приложение
+    await bot_app.initialize()
+    await bot_app.start()
+    
+    # Устанавливаем веб-хук
+    if RENDER_EXTERNAL_URL:
+        await setup_webhook(bot_app)
+    else:
+        logger.warning("⚠️ RENDER_EXTERNAL_URL не задан, веб-хук не установлен")
+    
+    logger.info("✅ Бот инициализирован и готов к работе!")
+    return bot_app
+
+# ========== ТОЧКА ВХОДА ==========
+if __name__ == "__main__":
+    # Запускаем инициализацию бота в отдельном потоке
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
-    try:
-        # Проверка веб-хука
-        print("🔄 Проверка веб-хука...")
-        
-        async def check_webhook():
-            temp_app = Application.builder().token(TOKEN).build()
-            webhook_info = await temp_app.bot.get_webhook_info()
-            
-            if webhook_info.url:
-                print(f"⚠️ Найден веб-хук: {webhook_info.url}")
-                await temp_app.bot.delete_webhook(drop_pending_updates=True)
-                print("✅ Веб-хук удалён!")
-            else:
-                print("✅ Веб-хук не установлен")
-        
-        loop.run_until_complete(check_webhook())
-        
-        # Запускаем бота
-        loop.run_until_complete(run_bot())
-        
-    except Exception as e:
-        print(f"❌ Ошибка в потоке бота: {e}")
-        traceback.print_exc()
-    finally:
-        loop.close()
+    # Инициализируем бота
+    loop.run_until_complete(initialize_bot())
+    
+    # Запускаем Flask (он будет работать в этом же потоке)
+    print(f"🌐 Запуск Flask на порту {PORT}")
+    flask_app.run(host='0.0.0.0', port=PORT)
 
-# ========== ОСНОВНАЯ ФУНКЦИЯ ==========
-def main():
-    try:
-        # Запускаем Flask в отдельном потоке
-        flask_thread = threading.Thread(target=run_flask, daemon=True)
-        flask_thread.start()
-        print(f"🌐 Веб-сервер Flask запущен на порту {PORT}")
-        print(f"🌍 Откройте в браузере: https://print-bot-o89e.onrender.com")
-        
-        # Запускаем бота в отдельном потоке
-        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
-        bot_thread.start()
-        print("✅ Бот запущен в фоновом потоке")
-        
-        # Держим основной поток активным
-        print("🔄 Сервис работает. Нажмите Ctrl+C для остановки")
-        while True:
-            time.sleep(60)  # Проверяем каждую минуту
-            
-    except KeyboardInterrupt:
-        print("\n👋 Сервис остановлен пользователем")
-    except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
-        traceback.print_exc()
-
-if __name__ == "__main__":
-    main()
 
 
 

@@ -8,6 +8,8 @@ import shutil
 import traceback
 import asyncio
 import sys
+import threading
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -23,7 +25,6 @@ from docx import Document
 
 # ========== ИМПОРТЫ ДЛЯ ВЕБ-СЕРВЕРА ==========
 from flask import Flask
-import threading
 # =============================================
 
 # ========== НАСТРОЙКИ ==========
@@ -144,6 +145,7 @@ def stats():
         return {"status": "error", "error": str(e)}, 500
 
 def run_flask():
+    """Запускает Flask-сервер"""
     flask_app.run(host='0.0.0.0', port=PORT)
 
 # ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ЗАКАЗАМИ ==========
@@ -904,8 +906,8 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========== ЗАПУСК БОТА ==========
 async def run_bot():
     try:
-        # ШАГ 1: Принудительно удаляем веб-хук перед запуском
-        print("🔄 Проверка и удаление веб-хука...")
+        # Проверка и удаление веб-хука
+        print("🔄 Проверка веб-хука...")
         temp_app = Application.builder().token(TOKEN).build()
         webhook_info = await temp_app.bot.get_webhook_info()
         
@@ -916,8 +918,8 @@ async def run_bot():
         else:
             print("✅ Веб-хук не установлен")
         
-        # ШАГ 2: Создаём основное приложение бота
-        print("🚀 Запуск бота в режиме polling...")
+        # Создаём основное приложение
+        print("🚀 Запуск Telegram бота...")
         app = Application.builder().token(TOKEN).build()
         
         conv_handler = ConversationHandler(
@@ -952,14 +954,10 @@ async def run_bot():
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response))
         app.add_error_handler(error_handler)
         
-        print("=" * 60)
-        print("✅ БОТ ЗАПУЩЕН!")
-        print(f"📁 Папка заказов: {ORDERS_FOLDER}")
-        print(f"📞 Телефон: {CONTACT_PHONE}")
-        print(f"🤖 Бот готов принимать сообщения!")
+        print="✅ Бот запущен и готов к работе!"
         print("=" * 60)
         
-        # ШАГ 3: Запускаем polling
+        # Запускаем polling
         await app.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True
@@ -967,26 +965,44 @@ async def run_bot():
     except Exception as e:
         logger.error(f"❌ Критическая ошибка в run_bot: {e}")
         logger.error(traceback.format_exc())
-        sys.exit(1)
 
+def run_bot_in_thread():
+    """Запускает бота в отдельном потоке"""
+    print("🚀 Запуск Telegram бота в фоновом потоке...")
+    try:
+        asyncio.run(run_bot())
+    except Exception as e:
+        print(f"❌ Ошибка в потоке бота: {e}")
+        traceback.print_exc()
+
+# ========== ОСНОВНАЯ ФУНКЦИЯ ==========
 def main():
     try:
-        # Запускаем Flask в отдельном потоке (для веб-страниц и health checks)
+        # Запускаем Flask в отдельном потоке
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
         print(f"🌐 Веб-сервер Flask запущен на порту {PORT}")
         print(f"🌍 Откройте в браузере: https://print-bot-o89e.onrender.com")
         
-        # Запускаем бота в основном потоке
-        asyncio.run(run_bot())
+        # Запускаем бота в отдельном потоке
+        bot_thread = threading.Thread(target=run_bot_in_thread, daemon=True)
+        bot_thread.start()
+        print("✅ Бот запущен в фоновом потоке")
+        
+        # Держим основной поток активным
+        print("🔄 Сервис работает. Нажмите Ctrl+C для остановки")
+        while True:
+            time.sleep(60)  # Проверяем каждую минуту
+            
     except KeyboardInterrupt:
-        print("\n👋 Бот остановлен пользователем")
+        print("\n👋 Сервис остановлен пользователем")
     except Exception as e:
-        logger.error(f"❌ Критическая ошибка в main: {e}")
-        sys.exit(1)
+        print(f"❌ Критическая ошибка: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
+
 
 
 

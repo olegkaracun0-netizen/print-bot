@@ -85,11 +85,32 @@ def home():
         <head>
             <title>Print Bot</title>
             <style>
-                body {{ font-family: Arial, sans-serif; margin: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
-                .container {{ max-width: 800px; margin: 0 auto; background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px); }}
-                h1 {{ text-align: center; }}
-                .status {{ background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; }}
-                .info {{ margin: 10px 0; }}
+                body {{ 
+                    font-family: Arial, sans-serif; 
+                    margin: 40px; 
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                    color: white; 
+                }}
+                .container {{ 
+                    max-width: 800px; 
+                    margin: 0 auto; 
+                    background: rgba(255,255,255,0.1); 
+                    padding: 30px; 
+                    border-radius: 15px; 
+                    backdrop-filter: blur(10px); 
+                }}
+                h1 {{ 
+                    text-align: center; 
+                }}
+                .status {{ 
+                    background: rgba(0,0,0,0.3); 
+                    padding: 20px; 
+                    border-radius: 10px; 
+                    margin: 20px 0; 
+                }}
+                .info {{ 
+                    margin: 10px 0; 
+                }}
             </style>
         </head>
         <body>
@@ -132,7 +153,7 @@ def run_flask():
 # =================================================
 
 def save_order_to_files(user_id, username, order_data, file_paths=None):
-    """Сохранение заказа в папку с файлами (без контактов и доставки)."""
+    """Сохранение заказа в папку с файлами."""
     try:
         # Создаем уникальное имя папки для заказа
         clean_username = re.sub(r'[^\w\s-]', '', username) or f"user_{user_id}"
@@ -172,7 +193,7 @@ def save_order_to_files(user_id, username, order_data, file_paths=None):
                     })
                     logger.info(f"📄 Файл {i} скопирован: {new_file_path}")
         
-        # Сохраняем информацию о заказе (БЕЗ КОНТАКТОВ И ДОСТАВКИ)
+        # Сохраняем информацию о заказе
         info_filename = os.path.join(order_folder, "информация_о_заказе.txt")
         
         total_pages_all = order_data.get('quantity', 1) * order_data.get('total_page_count', 1)
@@ -190,7 +211,6 @@ def save_order_to_files(user_id, username, order_data, file_paths=None):
             file_icon = "📸" if f['original_name'].lower().endswith(('.jpg', '.jpeg', '.png')) else "📄"
             files_list += f"   {file_icon} Файл {i}: {f['original_name']} ({f['pages']} листов)\n"
         
-        # ВНИМАНИЕ: Здесь убраны контакты и доставка!
         order_content = f"""
 ╔══════════════════════════════════════════════╗
 ║           ЗАКАЗ НА ПЕЧАТЬ                    ║
@@ -269,25 +289,20 @@ async def count_pages_in_file(file_path, file_name):
                 return len(pdf_reader.pages)
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
-            # Подсчет страниц в Word документе
             try:
-                # Пытаемся получить количество страниц через свойства документа
                 core_properties = doc.core_properties
                 if hasattr(core_properties, 'pages'):
                     return core_properties.pages
             except:
                 pass
             
-            # Если не удалось получить через свойства, используем приблизительный подсчет
             text = ""
             for paragraph in doc.paragraphs:
                 text += paragraph.text + " "
             
-            # Подсчет символов (приблизительно 2000 символов на страницу)
             chars = len(text)
             estimated_pages = max(1, chars // 2000)
             
-            # Также учитываем таблицы
             tables_count = len(doc.tables)
             if tables_count > 0:
                 estimated_pages += tables_count // 2
@@ -307,7 +322,6 @@ def extract_number_from_text(text):
         return int(numbers[0])
     return None
 
-# ========== ПРИВЕТСТВИЕ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
@@ -343,9 +357,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(welcome_text, parse_mode="Markdown")
     return WAITING_FOR_FILE
 
-# ========== ОБРАБОТКА ФАЙЛОВ ==========
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Основной обработчик файлов."""
     user_id = update.effective_user.id
     
     if update.message.media_group_id:
@@ -354,7 +366,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await handle_single_file(update, context)
 
 async def handle_media_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает группу медиафайлов (несколько файлов в одном сообщении)."""
     user_id = update.effective_user.id
     media_group_id = update.message.media_group_id
     
@@ -377,7 +388,6 @@ async def handle_media_group(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return WAITING_FOR_FILE
 
 async def process_multiple_files(user_id, messages, context):
-    """Обрабатывает несколько файлов из медиа-группы."""
     try:
         username = messages[0].from_user.username or messages[0].from_user.first_name
         
@@ -484,7 +494,6 @@ async def process_multiple_files(user_id, messages, context):
         return WAITING_FOR_FILE
 
 async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обрабатывает одиночный файл."""
     user_id = update.effective_user.id
     username = update.effective_user.username or update.effective_user.first_name
     
@@ -569,7 +578,6 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("Произошла ошибка. Попробуйте еще раз.")
         return WAITING_FOR_FILE
 
-# ========== ОБРАБОТКА КНОПОК ==========
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -922,7 +930,6 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
     )
     return CONFIRMING_ORDER
 
-# ========== ОБЩЕНИЕ ==========
 async def chat_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username or update.effective_user.first_name
@@ -977,7 +984,6 @@ async def chat_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Отправьте файл(ы) для заказа!"
         )
 
-# ========== ОШИБКИ ==========
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Ошибка: {context.error}")
     logger.error(traceback.format_exc())
@@ -989,14 +995,11 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
-# ========== ЗАПУСК БОТА ==========
 async def run_bot():
     """Запускает Telegram бота"""
     try:
-        # Создаем приложение бота
         app = Application.builder().token(TOKEN).build()
         
-        # Добавляем обработчики
         conv_handler = ConversationHandler(
             entry_points=[
                 MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
@@ -1032,7 +1035,6 @@ async def run_bot():
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response))
         app.add_error_handler(error_handler)
         
-        # Информация о запуске
         print("=" * 60)
         print("✅ БОТ ЗАПУЩЕН!")
         print(f"📁 Заказы сохраняются в папку: {ORDERS_FOLDER}")
@@ -1043,7 +1045,6 @@ async def run_bot():
         print("🔄 Бот работает в режиме long polling...")
         print("=" * 60)
         
-        # Запускаем бота
         await app.run_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
@@ -1054,16 +1055,13 @@ async def run_bot():
         logger.error(traceback.format_exc())
         sys.exit(1)
 
-# ========== ТОЧКА ВХОДА ==========
 def main():
     """Главная функция"""
     try:
-        # Запускаем Flask в отдельном потоке
         flask_thread = threading.Thread(target=run_flask, daemon=True)
         flask_thread.start()
         print(f"🌐 Flask сервер запущен на порту {PORT}")
         
-        # Запускаем бота в основном потоке
         asyncio.run(run_bot())
     except KeyboardInterrupt:
         print("\n👋 Бот остановлен пользователем")
@@ -1073,5 +1071,5 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-
     main()
+

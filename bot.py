@@ -905,23 +905,12 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ========== ЗАПУСК БОТА ==========
 async def run_bot():
+    """Основная функция бота"""
     try:
-        # Проверка и удаление веб-хука
-        print("🔄 Проверка веб-хука...")
-        temp_app = Application.builder().token(TOKEN).build()
-        webhook_info = await temp_app.bot.get_webhook_info()
-        
-        if webhook_info.url:
-            print(f"⚠️ Найден веб-хук: {webhook_info.url}")
-            await temp_app.bot.delete_webhook(drop_pending_updates=True)
-            print("✅ Веб-хук удалён!")
-        else:
-            print("✅ Веб-хук не установлен")
-        
-        # Создаём основное приложение
-        print("🚀 Запуск Telegram бота...")
+        # Создаём приложение
         app = Application.builder().token(TOKEN).build()
         
+        # Добавляем обработчики
         conv_handler = ConversationHandler(
             entry_points=[
                 MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
@@ -954,7 +943,7 @@ async def run_bot():
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_response))
         app.add_error_handler(error_handler)
         
-        print="✅ Бот запущен и готов к работе!"
+        print("✅ Бот запущен и готов к работе!")
         print("=" * 60)
         
         # Запускаем polling
@@ -967,13 +956,38 @@ async def run_bot():
         logger.error(traceback.format_exc())
 
 def run_bot_in_thread():
-    """Запускает бота в отдельном потоке"""
+    """Запускает бота в отдельном потоке с новым event loop"""
     print("🚀 Запуск Telegram бота в фоновом потоке...")
+    
+    # Создаём новый event loop для этого потока
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     try:
-        asyncio.run(run_bot())
+        # Проверка веб-хука
+        print("🔄 Проверка веб-хука...")
+        
+        async def check_webhook():
+            temp_app = Application.builder().token(TOKEN).build()
+            webhook_info = await temp_app.bot.get_webhook_info()
+            
+            if webhook_info.url:
+                print(f"⚠️ Найден веб-хук: {webhook_info.url}")
+                await temp_app.bot.delete_webhook(drop_pending_updates=True)
+                print("✅ Веб-хук удалён!")
+            else:
+                print("✅ Веб-хук не установлен")
+        
+        loop.run_until_complete(check_webhook())
+        
+        # Запускаем бота
+        loop.run_until_complete(run_bot())
+        
     except Exception as e:
         print(f"❌ Ошибка в потоке бота: {e}")
         traceback.print_exc()
+    finally:
+        loop.close()
 
 # ========== ОСНОВНАЯ ФУНКЦИЯ ==========
 def main():
@@ -1002,6 +1016,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 

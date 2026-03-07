@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлены все ошибки
+С сохранением на компьютер и полной функциональностью
 """
 
 import os
@@ -24,6 +24,7 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryH
 
 import PyPDF2
 from docx import Document
+from PIL import Image
 
 # ========== НАСТРОЙКИ ==========
 TOKEN = os.environ.get("TOKEN")
@@ -41,23 +42,26 @@ CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
 # ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ ==========
-if os.name == 'nt':  # Windows
-    BASE_DIR = os.path.join('C:\\', 'Users', 'Miko', 'Desktop')
-else:  # Linux/Mac (Render)
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Для Windows - меняем на ваш путь
+ORDERS_PATH = r"C:\Users\Miko\Desktop\заказы"
 
-ORDERS_FOLDER = "заказы"
-ORDERS_PATH = os.path.join(BASE_DIR, ORDERS_FOLDER)
-
-# Создаем папку для заказов
+# Проверяем и создаем папку
 try:
     os.makedirs(ORDERS_PATH, exist_ok=True)
-    print(f"📁 Папка заказов: {ORDERS_PATH}")
+    print(f"📁 Папка заказов на компьютере: {ORDERS_PATH}")
+    
+    # Проверяем права на запись
+    test_file = os.path.join(ORDERS_PATH, "test.txt")
+    with open(test_file, 'w') as f:
+        f.write("test")
+    os.remove(test_file)
+    print("✅ Права на запись есть")
+    
 except Exception as e:
-    print(f"❌ Ошибка создания папки: {e}")
-    ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FOLDER)
+    print(f"❌ Ошибка доступа к папке: {e}")
+    print("⚠️ Использую временную папку на сервере")
+    ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "заказы")
     os.makedirs(ORDERS_PATH, exist_ok=True)
-    print(f"📁 Используем запасную папку: {ORDERS_PATH}")
 
 # ========== ЛОГИРОВАНИЕ ==========
 logging.basicConfig(
@@ -78,7 +82,8 @@ logger = logging.getLogger(__name__)
 
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 user_sessions = {}
-media_groups = {}  # Для хранения групп файлов
+media_groups = {}
+group_timers = {}
 updater = None
 dispatcher = None
 bot = None
@@ -124,6 +129,7 @@ def count_pages_in_file(file_path, file_name):
             with open(file_path, 'rb') as f:
                 pdf = PyPDF2.PdfReader(f)
                 return len(pdf.pages)
+                
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
             # Приблизительный подсчет страниц в Word
@@ -135,7 +141,14 @@ def count_pages_in_file(file_path, file_name):
             if tables_count > 0:
                 estimated_pages += tables_count // 2
             
+            logger.info(f"📄 Word документ: {file_name} - {estimated_pages} стр.")
             return estimated_pages
+            
+        elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+            # Для фото считаем как 1 страница
+            logger.info(f"📸 Фото: {file_name} - 1 стр.")
+            return 1
+            
         return 1
     except Exception as e:
         logger.error(f"Ошибка подсчета страниц: {e}")
@@ -154,7 +167,6 @@ def download_file(file, file_name, user_id):
         elif hasattr(file, 'download'):  # Для Document
             file.download(custom_path=file_path)
         else:
-            # Запасной вариант
             with open(file_path, 'wb') as f:
                 file_content = file.download_as_bytearray()
                 f.write(file_content)
@@ -181,7 +193,6 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         logger.info(f"📁 Создана папка заказа: {order_folder}")
         
         saved_files = []
-        total_sum = 0
         
         for i, f in enumerate(files_info, 1):
             if os.path.exists(f['path']):
@@ -201,7 +212,7 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             f.write(f"{'='*50}\n\n")
             f.write(f"Клиент: {order_data['user_info']['first_name']} (@{username})\n")
             f.write(f"ID: {user_id}\n")
-            f.write(f"Телефон для связи: {CONTACT_PHONE}\n\n")
+            f.write(f"Телефон: {CONTACT_PHONE}\n\n")
             
             if order_data['type'] == 'photo':
                 format_names = {"small": "Малый (A6/10x15)", "medium": "Средний (13x18/15x21)", "large": "Большой (A4/21x30)"}
@@ -224,7 +235,8 @@ def save_order_to_folder(user_id, username, order_data, files_info):
                 f.write(f"{icon} Файл {i}: {file_info['name']}\n")
                 f.write(f"   • Страниц: {file_info['pages']}\n")
                 f.write(f"   • Копий: {order_data['quantity']}\n")
-                f.write(f"   • Сумма: {order_data['total'] // len(files_info)} руб.\n\n")
+                file_total = order_data['total'] // len(files_info)
+                f.write(f"   • Сумма: {file_total} руб.\n\n")
         
         logger.info(f"📝 Информация о заказе сохранена в {info_file}")
         return True, order_folder
@@ -287,17 +299,17 @@ def handle_media_group(update, context):
     
     media_groups[user_id][media_group_id].append(message)
     
-    # Запускаем таймер для обработки группы через 2 секунды
-    if 'timers' not in context.chat_data:
-        context.chat_data['timers'] = {}
+    # Отменяем предыдущий таймер если есть
+    timer_key = f"{user_id}_{media_group_id}"
+    if timer_key in group_timers:
+        group_timers[timer_key].cancel()
     
-    if media_group_id not in context.chat_data['timers']:
-        # Создаем таймер для обработки группы
-        import threading
-        timer = threading.Timer(2.0, process_media_group, args=[user_id, media_group_id, context])
-        timer.daemon = True
-        timer.start()
-        context.chat_data['timers'][media_group_id] = timer
+    # Создаем новый таймер на 2 секунды
+    import threading
+    timer = threading.Timer(2.0, process_media_group, args=[user_id, media_group_id, context])
+    timer.daemon = True
+    timer.start()
+    group_timers[timer_key] = timer
     
     return WAITING_FOR_FILE
 
@@ -311,9 +323,10 @@ def process_media_group(user_id, media_group_id, context):
         if not messages:
             return
         
-        # Удаляем таймер
-        if 'timers' in context.chat_data and media_group_id in context.chat_data['timers']:
-            del context.chat_data['timers'][media_group_id]
+        # Очищаем таймер
+        timer_key = f"{user_id}_{media_group_id}"
+        if timer_key in group_timers:
+            del group_timers[timer_key]
         
         # Создаем сессию если нужно
         if user_id not in user_sessions:
@@ -650,7 +663,6 @@ def button_handler(update, context):
                 f"⏳ Срок выполнения: {session['delivery']}\n\n"
                 f"📞 Контактный телефон: {CONTACT_PHONE}\n"
                 f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                "Свяжитесь с нами для уточнения деталей доставки!\n"
                 "Спасибо за заказ! 😊"
             )
         else:
@@ -709,7 +721,6 @@ def handle_quantity_input(update, context):
         return ENTERING_QUANTITY
     
     # Создаем callback как при нажатии кнопки
-    context.user_data['temp_quantity'] = quantity
     query = type('Query', (), {
         'data': f'qty_{quantity}',
         'from_user': update.effective_user,
@@ -723,6 +734,7 @@ print("=" * 60)
 print("🚀 ЗАПУСК БОТА")
 print("=" * 60)
 print(f"📁 Папка для заказов: {ORDERS_PATH}")
+print(f"📁 Папка существует: {os.path.exists(ORDERS_PATH)}")
 
 # Создаем бота
 bot = telegram.Bot(token=TOKEN)

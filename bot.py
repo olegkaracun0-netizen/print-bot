@@ -3,8 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Синхронная версия с полной функциональностью
-Работает на Render через веб-хуки
+Исправлена: сохранение заказов и множественная загрузка
 """
 
 import os
@@ -42,9 +41,11 @@ ORDERS_FOLDER = "заказы"
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
-# Создаем папку для заказов
-os.makedirs(ORDERS_FOLDER, exist_ok=True)
-print(f"📁 Папка заказов: {ORDERS_FOLDER}")
+# Создаем папку для заказов с абсолютным путем
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ORDERS_PATH = os.path.join(BASE_DIR, ORDERS_FOLDER)
+os.makedirs(ORDERS_PATH, exist_ok=True)
+print(f"📁 Папка заказов: {ORDERS_PATH}")
 
 # ========== ЛОГИРОВАНИЕ ==========
 logging.basicConfig(
@@ -54,7 +55,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========== СОСТОЯНИЯ ДЛЯ РАЗГОВОРА ==========
+# ========== СОСТОЯНИЯ ==========
 (
     WAITING_FOR_FILE,
     SELECTING_PHOTO_FORMAT,
@@ -113,7 +114,6 @@ def count_pages_in_file(file_path, file_name):
                 return len(pdf.pages)
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
-            # Примерный подсчет: 1 страница = ~30 параграфов
             return max(1, len(doc.paragraphs) // 30)
         return 1
     except Exception as e:
@@ -126,20 +126,22 @@ def download_file(file, file_name, user_id):
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
         
-        # Универсальный метод скачивания для разных типов файлов
-        if hasattr(file, 'download'):  # Для объектов Document
-            file.download(file_path)
-        elif hasattr(file, 'get_file'):  # Для PhotoSize
+        # Универсальный метод скачивания
+        if hasattr(file, 'get_file'):  # Для PhotoSize
             file_obj = file.get_file()
-            file_obj.download(file_path)
+            file_obj.download(custom_path=file_path)
+        elif hasattr(file, 'download'):  # Для Document
+            file.download(custom_path=file_path)
         else:
             # Запасной вариант
             with open(file_path, 'wb') as f:
-                f.write(file.download_as_bytearray())
+                file_content = file.download_as_bytearray()
+                f.write(file_content)
         
+        logger.info(f"✅ Файл скачан: {file_path}")
         return file_path, temp_dir
     except Exception as e:
-        logger.error(f"Ошибка скачивания: {e}")
+        logger.error(f"❌ Ошибка скачивания: {e}")
         return None, None
 
 def save_order_to_folder(user_id, username, order_data, files_info):
@@ -147,14 +149,19 @@ def save_order_to_folder(user_id, username, order_data, files_info):
     try:
         clean_name = re.sub(r'[^\w\s-]', '', username) or f"user_{user_id}"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        order_folder = os.path.join(ORDERS_FOLDER, f"{clean_name}_{timestamp}")
+        order_folder = os.path.join(ORDERS_PATH, f"{clean_name}_{timestamp}")
         os.makedirs(order_folder, exist_ok=True)
+        logger.info(f"📁 Создана папка заказа: {order_folder}")
         
         saved_files = []
         for i, f in enumerate(files_info, 1):
-            new_path = os.path.join(order_folder, f"{i}_{f['name']}")
-            shutil.copy2(f['path'], new_path)
-            saved_files.append(new_path)
+            if os.path.exists(f['path']):
+                new_path = os.path.join(order_folder, f"{i}_{f['name']}")
+                shutil.copy2(f['path'], new_path)
+                saved_files.append(new_path)
+                logger.info(f"📄 Файл {i} скопирован: {new_path}")
+            else:
+                logger.error(f"❌ Файл не найден: {f['path']}")
         
         # Сохраняем информацию о заказе
         info_file = os.path.join(order_folder, "информация_о_заказе.txt")
@@ -183,9 +190,10 @@ def save_order_to_folder(user_id, username, order_data, files_info):
                 icon = "📸" if file_info['type'] == 'photo' else "📄"
                 f.write(f"{icon} {i}. {file_info['name']} - {file_info['pages']} стр.\n")
         
+        logger.info(f"📝 Информация о заказе сохранена в {info_file}")
         return True, order_folder
     except Exception as e:
-        logger.error(f"Ошибка сохранения: {e}")
+        logger.error(f"❌ Ошибка сохранения: {e}")
         return False, None
 
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
@@ -218,6 +226,7 @@ def start(update, context):
 def handle_file(update, context):
     """Обработка входящих файлов"""
     user_id = update.effective_user.id
+    message = update.message
     
     # Создаем сессию если нужно
     if user_id not in user_sessions:
@@ -238,8 +247,8 @@ def handle_file(update, context):
     file_name = None
     file_type = None
     
-    if update.message.document:
-        file = update.message.document
+    if message.document:
+        file = message.document
         file_name = file.file_name
         ext = file_name.lower().split('.')[-1]
         if ext in ['jpg', 'jpeg', 'png']:
@@ -247,10 +256,10 @@ def handle_file(update, context):
         elif ext in ['pdf', 'doc', 'docx']:
             file_type = "doc"
         else:
-            update.message.reply_text("❌ Неподдерживаемый формат")
+            message.reply_text("❌ Неподдерживаемый формат")
             return WAITING_FOR_FILE
-    elif update.message.photo:
-        file = update.message.photo[-1]
+    elif message.photo:
+        file = message.photo[-1]
         file_name = f"photo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
         file_type = "photo"
     else:
@@ -259,7 +268,7 @@ def handle_file(update, context):
     # Скачиваем файл
     file_path, temp_dir = download_file(file, file_name, user_id)
     if not file_path:
-        update.message.reply_text("❌ Ошибка загрузки")
+        message.reply_text("❌ Ошибка загрузки")
         return WAITING_FOR_FILE
     
     # Считаем страницы
@@ -306,7 +315,7 @@ def handle_file(update, context):
             [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
         ]
     
-    update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return WAITING_FOR_FILE
 
 def button_handler(update, context):
@@ -501,7 +510,6 @@ def handle_quantity_input(update, context):
         return ENTERING_QUANTITY
     
     # Создаем callback как при нажатии кнопки
-    context.user_data['temp_quantity'] = quantity
     query = type('Query', (), {
         'data': f'qty_{quantity}',
         'from_user': update.effective_user,
@@ -512,8 +520,9 @@ def handle_quantity_input(update, context):
 
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 print("=" * 60)
-print("🚀 ЗАПУСК БОТА (СИНХРОННАЯ ВЕРСИЯ)")
+print("🚀 ЗАПУСК БОТА")
 print("=" * 60)
+print(f"📁 Папка для заказов: {ORDERS_PATH}")
 
 # Создаем бота
 bot = telegram.Bot(token=TOKEN)
@@ -595,6 +604,7 @@ def health():
     return jsonify({
         "status": "ok", 
         "bot_ready": dispatcher is not None,
+        "orders_folder": ORDERS_PATH,
         "timestamp": datetime.now().isoformat()
     })
 
@@ -602,12 +612,13 @@ def health():
 def stats():
     """Статистика заказов"""
     try:
-        orders_count = len([d for d in os.listdir(ORDERS_FOLDER) if os.path.isdir(os.path.join(ORDERS_FOLDER, d))]) if os.path.exists(ORDERS_FOLDER) else 0
+        orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
         return jsonify({
             "status": "ok",
             "orders_count": orders_count,
             "active_sessions": len(user_sessions),
-            "bot_ready": dispatcher is not None
+            "bot_ready": dispatcher is not None,
+            "orders_folder": ORDERS_PATH
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -633,7 +644,7 @@ def home():
                 <h1>🤖 Print Bot</h1>
                 <div class="status">
                     <h2>✅ Бот работает 24/7!</h2>
-                    <p class="info">📁 Папка заказов: <strong>{ORDERS_FOLDER}/</strong></p>
+                    <p class="info">📁 Папка заказов: <strong>{ORDERS_PATH}</strong></p>
                     <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
                     <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
                     <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>

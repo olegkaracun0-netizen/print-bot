@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-С функциями: статусы заказов, уведомления, предпросмотр фото, дизайн
+С функциями: статусы заказов и предпросмотр фото
 """
 
 import os
@@ -16,9 +16,8 @@ import shutil
 import traceback
 import zipfile
 import threading
-import time
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string
+from flask import Flask, request, jsonify, send_file, send_from_directory
 
 # Используем синхронную версию python-telegram-bot
 import telegram
@@ -63,27 +62,18 @@ ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
 
 # ========== СТАТУСЫ ЗАКАЗОВ ==========
 ORDER_STATUSES = {
-    "new": {"emoji": "🆕", "text": "Новый", "color": "#e3f2fd"},
-    "processing": {"emoji": "🔄", "text": "В обработке", "color": "#fff3e0"},
-    "printing": {"emoji": "🖨️", "text": "В печати", "color": "#e8f5e8"},
-    "ready": {"emoji": "✅", "text": "Готов", "color": "#e8e8f5"},
-    "shipped": {"emoji": "📦", "text": "Отправлен", "color": "#f3e5f5"},
-    "delivered": {"emoji": "🏁", "text": "Доставлен", "color": "#e8f0fe"},
-    "cancelled": {"emoji": "❌", "text": "Отменен", "color": "#ffebee"}
+    "new": "🆕 Новый",
+    "processing": "🔄 В обработке",
+    "printing": "🖨️ В печати",
+    "ready": "✅ Готов",
+    "shipped": "📦 Отправлен",
+    "delivered": "🏁 Доставлен",
+    "cancelled": "❌ Отменен"
 }
 
-def get_status_text(status_code):
-    """Возвращает текст статуса"""
-    return ORDER_STATUSES.get(status_code, {}).get("text", status_code)
-
-def get_status_emoji(status_code):
-    """Возвращает эмодзи статуса"""
-    return ORDER_STATUSES.get(status_code, {}).get("emoji", "❓")
-
-def get_status_display(status_code):
-    """Возвращает полное отображение статуса (эмодзи + текст)"""
-    status = ORDER_STATUSES.get(status_code, {})
-    return f"{status.get('emoji', '❓')} {status.get('text', status_code)}"
+def get_status_display(status):
+    """Возвращает отображение статуса"""
+    return ORDER_STATUSES.get(status, status)
 
 # Загружаем историю заказов
 def load_orders_history():
@@ -101,123 +91,46 @@ def save_order_to_history(order_data):
     """Сохраняет заказ в историю"""
     try:
         history = load_orders_history()
-        
-        # Добавляем статус по умолчанию
-        order_data["status"] = "new"
-        order_data["status_history"] = [{
-            "status": "new",
-            "timestamp": datetime.now().isoformat(),
-            "note": "Заказ создан"
-        }]
-        
         history.append(order_data)
-        
         with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
-            
-        logger.info(f"✅ Заказ сохранен в историю: {order_data.get('order_id', 'unknown')}")
-        return True
     except Exception as e:
-        logger.error(f"❌ Ошибка сохранения истории: {e}")
-        return False
+        logger.error(f"Ошибка сохранения истории: {e}")
 
-def update_order_status(order_id, new_status, note=""):
-    """Обновляет статус заказа в истории"""
+def update_order_status(order_id, new_status):
+    """Обновляет статус заказа"""
     try:
         history = load_orders_history()
         updated = False
-        
         for order in history:
-            if order.get('order_id') == order_id or order.get('folder', '').endswith(order_id):
-                old_status = order.get('status', 'new')
+            if order.get('order_id') == order_id:
                 order['status'] = new_status
-                
-                if 'status_history' not in order:
-                    order['status_history'] = []
-                
-                order['status_history'].append({
-                    "status": new_status,
-                    "timestamp": datetime.now().isoformat(),
-                    "note": note
-                })
-                
                 updated = True
-                logger.info(f"✅ Статус заказа {order_id} изменен: {old_status} -> {new_status}")
                 break
         
         if updated:
             with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
             
-            # Обновляем файл информации в папке заказа
-            order_folder = os.path.join(ORDERS_PATH, order_id)
-            info_file = os.path.join(order_folder, "информация_о_заказе.txt")
-            if os.path.exists(info_file):
-                with open(info_file, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                
-                # Заменяем или добавляем строку со статусом
-                status_line = f"Статус: {get_status_display(new_status)}"
-                if "Статус:" in content:
-                    import re
-                    content = re.sub(r'Статус:.*\n', status_line + '\n', content)
-                else:
-                    content += f"\n{status_line}\n"
-                
-                with open(info_file, 'w', encoding='utf-8') as f:
-                    f.write(content)
-            
-            # Отправляем уведомление клиенту об изменении статуса
-            if bot and order.get('user_id'):
+            # Отправляем уведомление клиенту
+            order_info = next((o for o in history if o.get('order_id') == order_id), None)
+            if order_info and order_info.get('user_id') and bot:
                 try:
-                    client_message = (
-                        f"📢 **Обновление статуса вашего заказа**\n\n"
-                        f"🆔 Заказ: {order_id}\n"
-                        f"📌 Новый статус: {get_status_display(new_status)}\n"
-                    )
-                    if note:
-                        client_message += f"📝 Комментарий: {note}\n"
-                    
                     bot.send_message(
-                        chat_id=order['user_id'],
-                        text=client_message,
+                        chat_id=order_info['user_id'],
+                        text=f"📢 **Статус вашего заказа изменен**\n\n"
+                             f"🆔 Заказ: {order_id}\n"
+                             f"📌 Новый статус: {get_status_display(new_status)}",
                         parse_mode="Markdown"
                     )
-                    logger.info(f"✅ Уведомление об изменении статуса отправлено клиенту {order['user_id']}")
                 except Exception as e:
-                    logger.error(f"❌ Ошибка отправки уведомления клиенту: {e}")
-        
-        return updated
-    except Exception as e:
-        logger.error(f"❌ Ошибка обновления статуса: {e}")
+                    logger.error(f"Ошибка отправки уведомления: {e}")
+            
+            return True
         return False
-
-# ========== ФУНКЦИЯ ДЛЯ ОЧИСТКИ СТАРЫХ ЗАКАЗОВ ==========
-def clean_old_orders(days=30):
-    """Удаляет заказы старше указанного количества дней"""
-    try:
-        now = datetime.now()
-        count = 0
-        for item in os.listdir(ORDERS_PATH):
-            item_path = os.path.join(ORDERS_PATH, item)
-            if os.path.isdir(item_path) and item != "orders_history.json":
-                # Получаем время создания папки
-                created = datetime.fromtimestamp(os.path.getctime(item_path))
-                age = now - created
-                
-                # Если папка старше days дней, удаляем
-                if age.days > days:
-                    shutil.rmtree(item_path, ignore_errors=True)
-                    count += 1
-                    print(f"🗑️ Удален старый заказ: {item} (возраст {age.days} дней)")
-        
-        if count > 0:
-            print(f"✅ Очистка завершена. Удалено {count} старых заказов")
     except Exception as e:
-        print(f"❌ Ошибка при очистке старых заказов: {e}")
-
-# Запускаем очистку при старте (удаляем заказы старше 30 дней)
-clean_old_orders(30)
+        logger.error(f"Ошибка обновления статуса: {e}")
+        return False
 
 # ========== ФУНКЦИЯ ДЛЯ ФОРМАТИРОВАНИЯ РАЗМЕРА ФАЙЛА ==========
 def format_file_size(size_bytes):
@@ -435,7 +348,6 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             "quantity": order_data['quantity'],
             "total_photos": total_photos,
             "total_pages": total_pages,
-            "total_items": total_photos + total_pages,
             "total_price": order_data['total'],
             "delivery": order_data['delivery'],
             "status": "new"
@@ -478,14 +390,13 @@ def send_admin_notification(order_data, order_id, order_folder):
         admin_message += f"📦 Файлов: {len(order_data['files'])}\n"
         
         if photo_files:
-            admin_message += f"📸 Фото: {len(photo_files)} файлов, {total_photos} фото в оригинале\n"
+            admin_message += f"📸 Фото: {len(photo_files)} файлов, {total_photos} фото\n"
         if doc_files:
-            admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц в оригинале\n"
+            admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц\n"
         
         admin_message += f"💰 Сумма: {order_data['total']} руб.\n"
         admin_message += f"⏳ Срок: {order_data['delivery']}\n\n"
-        admin_message += f"🔗 Ссылка для управления:\n{order_url}\n\n"
-        admin_message += f"📁 Папка на сервере:\n{order_folder}"
+        admin_message += f"🔗 Ссылка на заказ:\n{order_url}"
         
         # Отправляем админу
         if bot:
@@ -638,7 +549,7 @@ def process_media_group(user_id, media_group_id, context):
             # Считаем количество
             items, unit, type_name = count_items_in_file(file_path, file_name)
             
-            # Сохраняем в сессию с правильным типом
+            # Сохраняем в сессию
             file_info = {
                 "path": file_path,
                 "name": file_name,
@@ -974,7 +885,7 @@ def button_handler(update, context):
             total_photos = sum(f['items'] for f in photo_files)
             total_pages = sum(f['items'] for f in doc_files)
             
-            # Уведомление клиенту с предпросмотром (если есть фото)
+            # Уведомление клиенту
             client_message = (
                 "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
                 f"🆔 Номер заказа: `{order_id}`\n"
@@ -995,7 +906,7 @@ def button_handler(update, context):
                 f"📞 Контактный телефон: {CONTACT_PHONE}\n"
                 f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
                 f"📌 **Статус вашего заказа:** {get_status_display('new')}\n"
-                "Мы будем уведомлять вас об изменениях статуса!\n\n"
+                "Вы будете получать уведомления при изменении статуса.\n\n"
                 "Спасибо за заказ! 😊"
             )
             
@@ -1005,11 +916,11 @@ def button_handler(update, context):
                 parse_mode="Markdown"
             )
             
-            # Если есть фото, отправляем предпросмотр
+            # Если есть фото, отправляем предпросмотр (первые 5 фото)
             if photo_files:
                 try:
                     media_group = []
-                    for i, photo_file in enumerate(photo_files[:10]):  # Максимум 10 фото
+                    for i, photo_file in enumerate(photo_files[:5]):
                         with open(photo_file['path'], 'rb') as photo:
                             if i == 0:
                                 media_group.append(InputMediaPhoto(
@@ -1038,6 +949,7 @@ def button_handler(update, context):
             shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
         
+        # Кнопка для нового заказа
         keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
         query.message.delete()
         context.bot.send_message(
@@ -1094,830 +1006,8 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
-# ========== ФУНКЦИЯ ДЛЯ ПЕРИОДИЧЕСКОЙ ОЧИСТКИ ==========
-def scheduled_cleanup():
-    """Запускает очистку старых заказов раз в день"""
-    clean_old_orders(30)
-    # Запускаем снова через 24 часа
-    threading.Timer(86400, scheduled_cleanup).start()
-
-# Запускаем периодическую очистку
-threading.Timer(86400, scheduled_cleanup).start()
-
-# ========== ВЕБ-ИНТЕРФЕЙС С НОВЫМ ДИЗАЙНОМ ==========
+# ========== ВЕБ-ИНТЕРФЕЙС ==========
 app = Flask(__name__)
-
-# HTML шаблон для главной страницы
-HOME_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Print Bot - Главная</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 1200px;
-            width: 100%;
-        }
-        
-        .hero {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 30px;
-            padding: 60px 40px;
-            color: white;
-            text-align: center;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
-            margin-bottom: 30px;
-        }
-        
-        .hero h1 {
-            font-size: 3.5em;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 15px;
-        }
-        
-        .hero h1 i {
-            font-size: 1.2em;
-        }
-        
-        .hero p {
-            font-size: 1.2em;
-            opacity: 0.9;
-            max-width: 600px;
-            margin: 0 auto 30px;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-top: 40px;
-        }
-        
-        .stat-card {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 20px;
-            padding: 30px 20px;
-            text-align: center;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .stat-card:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: translateY(-5px);
-        }
-        
-        .stat-icon {
-            font-size: 2.5em;
-            margin-bottom: 15px;
-        }
-        
-        .stat-value {
-            font-size: 2.5em;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-        
-        .stat-label {
-            font-size: 0.9em;
-            opacity: 0.8;
-        }
-        
-        .actions-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            margin-top: 30px;
-        }
-        
-        .action-card {
-            background: white;
-            border-radius: 20px;
-            padding: 30px;
-            text-align: center;
-            text-decoration: none;
-            color: #333;
-            transition: all 0.3s ease;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-        }
-        
-        .action-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
-        }
-        
-        .action-icon {
-            font-size: 3em;
-            margin-bottom: 15px;
-        }
-        
-        .action-title {
-            font-size: 1.3em;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
-        
-        .action-desc {
-            font-size: 0.9em;
-            color: #666;
-        }
-        
-        .info-section {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 20px;
-            padding: 30px;
-            margin-top: 30px;
-            color: white;
-        }
-        
-        .info-title {
-            font-size: 1.3em;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .contacts {
-            display: flex;
-            gap: 20px;
-            flex-wrap: wrap;
-        }
-        
-        .contact-item {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px 25px;
-            border-radius: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        @media (max-width: 768px) {
-            .hero h1 {
-                font-size: 2.5em;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="hero">
-            <h1>
-                <span>🤖</span> Print Bot
-            </h1>
-            <p>Сервис для печати фото и документов через Telegram</p>
-            
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">📦</div>
-                    <div class="stat-value">{orders_count}</div>
-                    <div class="stat-label">активных заказов</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">📊</div>
-                    <div class="stat-value">{total_orders}</div>
-                    <div class="stat-label">всего заказов</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">💰</div>
-                    <div class="stat-value">{total_revenue}</div>
-                    <div class="stat-label">руб. прибыль</div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="actions-grid">
-            <a href="/orders/" class="action-card">
-                <div class="action-icon">📋</div>
-                <div class="action-title">Заказы</div>
-                <div class="action-desc">Просмотр и управление заказами</div>
-            </a>
-            <a href="/stats" class="action-card">
-                <div class="action-icon">📊</div>
-                <div class="action-title">Статистика</div>
-                <div class="action-desc">Детальная информация</div>
-            </a>
-            <a href="/health" class="action-card">
-                <div class="action-icon">❤️</div>
-                <div class="action-title">Здоровье</div>
-                <div class="action-desc">Проверка состояния бота</div>
-            </a>
-        </div>
-        
-        <div class="info-section">
-            <div class="info-title">
-                <span>📞</span> Контактная информация
-            </div>
-            <div class="contacts">
-                <div class="contact-item">
-                    <span>📞</span> {phone}
-                </div>
-                <div class="contact-item">
-                    <span>🚚</span> {delivery}
-                </div>
-                <div class="contact-item">
-                    <span>⏰</span> {time}
-                </div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-# HTML шаблон для списка заказов
-ORDERS_TEMPLATE = """
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Print Bot - Заказы</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        
-        .header {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 30px;
-            margin-bottom: 30px;
-            color: white;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-        
-        .header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        
-        .stats {
-            display: flex;
-            gap: 20px;
-            margin-top: 20px;
-            flex-wrap: wrap;
-        }
-        
-        .stat-card {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 15px;
-            padding: 15px 25px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-        
-        .stat-icon {
-            font-size: 2em;
-        }
-        
-        .stat-info h3 {
-            font-size: 0.9em;
-            opacity: 0.9;
-            margin-bottom: 5px;
-        }
-        
-        .stat-info p {
-            font-size: 1.5em;
-            font-weight: bold;
-        }
-        
-        .nav-links {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
-        }
-        
-        .nav-btn {
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(10px);
-            color: white;
-            text-decoration: none;
-            padding: 12px 25px;
-            border-radius: 12px;
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            transition: all 0.3s ease;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-        
-        .nav-btn:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: translateY(-2px);
-        }
-        
-        .orders-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
-            gap: 25px;
-        }
-        
-        .order-card {
-            background: white;
-            border-radius: 20px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-            transition: all 0.3s ease;
-        }
-        
-        .order-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
-        }
-        
-        .order-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            position: relative;
-        }
-        
-        .order-header h2 {
-            font-size: 1.1em;
-            margin-bottom: 10px;
-            word-break: break-all;
-            opacity: 0.9;
-            padding-right: 120px;
-        }
-        
-        .order-date {
-            font-size: 0.9em;
-            opacity: 0.8;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-        }
-        
-        .order-status-badge {
-            position: absolute;
-            top: 15px;
-            right: 15px;
-            background: rgba(255, 255, 255, 0.2);
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            backdrop-filter: blur(5px);
-            font-weight: 500;
-        }
-        
-        .order-content {
-            padding: 20px;
-        }
-        
-        .order-stats {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 15px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .stat-item {
-            text-align: center;
-        }
-        
-        .stat-value {
-            font-size: 1.2em;
-            font-weight: bold;
-            color: #333;
-        }
-        
-        .stat-label {
-            font-size: 0.8em;
-            color: #666;
-            margin-top: 5px;
-        }
-        
-        .status-menu {
-            margin: 15px 0;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        
-        .status-menu h4 {
-            margin-bottom: 10px;
-            color: #333;
-        }
-        
-        .status-buttons {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        
-        .status-btn {
-            padding: 8px 12px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 0.85em;
-            transition: all 0.2s ease;
-            background: white;
-            border: 1px solid #dee2e6;
-        }
-        
-        .status-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        
-        {% for status, data in statuses.items() %}
-        .status-btn.{{ status }} { background: {{ data.color }}; color: #333; }
-        {% endfor %}
-        
-        .files-list {
-            margin: 15px 0;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        
-        .file-item {
-            display: flex;
-            align-items: center;
-            padding: 8px;
-            background: #f8f9fa;
-            border-radius: 8px;
-            margin-bottom: 5px;
-            transition: all 0.2s ease;
-        }
-        
-        .file-item:hover {
-            background: #e9ecef;
-        }
-        
-        .file-icon {
-            font-size: 1.2em;
-            margin-right: 10px;
-        }
-        
-        .file-info {
-            flex: 1;
-        }
-        
-        .file-name {
-            font-size: 0.9em;
-            color: #333;
-            word-break: break-all;
-        }
-        
-        .file-size {
-            font-size: 0.8em;
-            color: #666;
-        }
-        
-        .file-download {
-            color: #667eea;
-            text-decoration: none;
-            padding: 5px 10px;
-            border-radius: 5px;
-            transition: all 0.2s ease;
-        }
-        
-        .file-download:hover {
-            background: #e9ecef;
-        }
-        
-        .photo-preview {
-            max-width: 100px;
-            max-height: 100px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            object-fit: cover;
-        }
-        
-        .photo-preview:hover {
-            transform: scale(1.1);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        
-        .photo-gallery {
-            display: flex;
-            gap: 10px;
-            overflow-x: auto;
-            padding: 15px 0;
-            margin-bottom: 15px;
-        }
-        
-        .order-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-        }
-        
-        .action-btn {
-            flex: 1;
-            padding: 12px;
-            border: none;
-            border-radius: 10px;
-            font-size: 0.9em;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            text-decoration: none;
-            transition: all 0.3s ease;
-        }
-        
-        .btn-download-all {
-            background: #28a745;
-            color: white;
-        }
-        
-        .btn-download-all:hover {
-            background: #218838;
-            transform: translateY(-2px);
-        }
-        
-        .btn-view {
-            background: #667eea;
-            color: white;
-        }
-        
-        .btn-view:hover {
-            background: #5a67d8;
-            transform: translateY(-2px);
-        }
-        
-        .order-info {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 15px;
-            margin: 15px 0;
-            font-size: 0.9em;
-            white-space: pre-wrap;
-            max-height: 200px;
-            overflow-y: auto;
-        }
-        
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            color: white;
-        }
-        
-        .empty-icon {
-            font-size: 5em;
-            margin-bottom: 20px;
-            opacity: 0.5;
-        }
-        
-        .empty-text {
-            font-size: 1.2em;
-            opacity: 0.8;
-        }
-        
-        @media (max-width: 768px) {
-            .orders-grid {
-                grid-template-columns: 1fr;
-            }
-            
-            .header h1 {
-                font-size: 2em;
-            }
-            
-            .stats {
-                flex-direction: column;
-            }
-        }
-    </style>
-    <script>
-        function updateStatus(orderId, status) {
-            fetch(`/orders/${orderId}/status`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({status: status})
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    location.reload();
-                } else {
-                    alert('Ошибка при обновлении статуса: ' + (data.error || 'неизвестная ошибка'));
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                alert('Ошибка при обновлении статуса');
-            });
-        }
-    </script>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>
-                <span>📦</span> Заказы на печать
-            </h1>
-            <p>Управление заказами и файлами</p>
-            
-            <div class="stats">
-                <div class="stat-card">
-                    <span class="stat-icon">📊</span>
-                    <div class="stat-info">
-                        <h3>Всего заказов</h3>
-                        <p>{orders_count}</p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-icon">📁</span>
-                    <div class="stat-info">
-                        <h3>Всего файлов</h3>
-                        <p>{total_files}</p>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-icon">💰</span>
-                    <div class="stat-info">
-                        <h3>Общая сумма</h3>
-                        <p>{total_sum} руб.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-        
-        <div class="nav-links">
-            <a href="/" class="nav-btn">
-                <span>🏠</span> На главную
-            </a>
-            <a href="/stats" class="nav-btn">
-                <span>📊</span> Статистика
-            </a>
-            <a href="/health" class="nav-btn">
-                <span>❤️</span> Здоровье
-            </a>
-        </div>
-        
-        {% if orders %}
-        <div class="orders-grid">
-            {% for order in orders %}
-            <div class="order-card" id="order-{{ order.id }}">
-                <div class="order-header">
-                    <h2>{{ order.id }}</h2>
-                    <div class="order-date">
-                        <span>📅</span> {{ order.created }}
-                    </div>
-                    <div class="order-status-badge" style="background: {{ order.status_color }}">
-                        {{ order.status_display }}
-                    </div>
-                </div>
-                
-                <div class="order-content">
-                    <div class="order-stats">
-                        <div class="stat-item">
-                            <div class="stat-value">{{ order.file_count }}</div>
-                            <div class="stat-label">файлов</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value">{{ order.total_size }}</div>
-                            <div class="stat-label">объем</div>
-                        </div>
-                        <div class="stat-item">
-                            <div class="stat-value">{{ order.age_days }}д</div>
-                            <div class="stat-label">возраст</div>
-                        </div>
-                    </div>
-                    
-                    <div class="status-menu">
-                        <h4>📌 Изменить статус:</h4>
-                        <div class="status-buttons">
-                            {% for status, data in statuses.items() %}
-                            <button class="status-btn {{ status }}" onclick="updateStatus('{{ order.id }}', '{{ status }}')">
-                                {{ data.emoji }} {{ data.text }}
-                            </button>
-                            {% endfor %}
-                        </div>
-                    </div>
-                    
-                    {% if order.info %}
-                    <div class="order-info">{{ order.info }}</div>
-                    {% endif %}
-                    
-                    {% if order.photos %}
-                    <div class="photo-gallery">
-                        {% for photo in order.photos %}
-                        <img src="{{ photo.url }}" class="photo-preview" alt="{{ photo.name }}" onclick="window.open('{{ photo.url }}', '_blank')">
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-                    
-                    <div class="files-list">
-                        {% for file in order.files %}
-                        <div class="file-item">
-                            <span class="file-icon">{{ '📸' if file.is_photo else '📄' }}</span>
-                            <div class="file-info">
-                                <div class="file-name">{{ file.name }}</div>
-                                <div class="file-size">{{ file.size_formatted }}</div>
-                            </div>
-                            <a href="{{ file.url }}" class="file-download" download>⬇️</a>
-                        </div>
-                        {% endfor %}
-                    </div>
-                    
-                    <div class="order-actions">
-                        <a href="/orders/{{ order.id }}/" class="action-btn btn-view">
-                            <span>👁️</span> Подробнее
-                        </a>
-                        <a href="/orders/{{ order.id }}/download" class="action-btn btn-download-all">
-                            <span>⬇️</span> Все файлы
-                        </a>
-                    </div>
-                </div>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="empty-state">
-            <div class="empty-icon">📭</div>
-            <div class="empty-text">Заказов пока нет</div>
-        </div>
-        {% endif %}
-    </div>
-</body>
-</html>
-"""
-
-@app.route('/')
-def home():
-    """Главная страница"""
-    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    
-    # Считаем статистику
-    orders_count = 0
-    total_files = 0
-    total_sum = 0
-    
-    if os.path.exists(ORDERS_PATH):
-        for item in os.listdir(ORDERS_PATH):
-            item_path = os.path.join(ORDERS_PATH, item)
-            if os.path.isdir(item_path) and item != "orders_history.json":
-                orders_count += 1
-    
-    history = load_orders_history()
-    total_orders = len(history)
-    total_revenue = sum(order.get('total_price', 0) for order in history)
-    
-    return render_template_string(
-        HOME_TEMPLATE,
-        orders_count=orders_count,
-        total_orders=total_orders,
-        total_revenue=total_revenue,
-        phone=CONTACT_PHONE,
-        delivery=DELIVERY_OPTIONS,
-        time=current_time
-    )
 
 @app.route('/orders/')
 def list_orders():
@@ -1949,7 +1039,7 @@ def list_orders():
                     total_size = 0
                     file_count = 0
                     
-                    for f in sorted(os.listdir(item_path)):
+                    for f in os.listdir(item_path):
                         if f != "информация_о_заказе.txt":
                             file_path = os.path.join(item_path, f)
                             file_size = os.path.getsize(file_path)
@@ -1976,463 +1066,314 @@ def list_orders():
                     orders.append({
                         'id': item,
                         'name': item,
-                        'info': info_text.replace('\n', '<br>'),
+                        'info': info_text,
                         'files': files,
-                        'photos': photos[:5],  # Первые 5 фото для галереи
+                        'photos': photos,
                         'file_count': file_count,
                         'total_size': format_file_size(total_size),
                         'created': created.strftime('%d.%m.%Y %H:%M'),
                         'age_days': age.days,
-                        'status': status,
-                        'status_display': get_status_display(status),
-                        'status_color': ORDER_STATUSES.get(status, {}).get('color', '#f8f9fa')
+                        'status': get_status_display(status)
                     })
         
         # Сортируем по дате (новые сверху)
         orders.sort(key=lambda x: x['created'], reverse=True)
         
-        # Общая статистика
-        total_files = sum(o['file_count'] for o in orders)
-        total_sum = 0
-        
-        return render_template_string(
-            ORDERS_TEMPLATE,
-            orders=orders,
-            orders_count=len(orders),
-            total_files=total_files,
-            total_sum=total_sum,
-            statuses=ORDER_STATUSES
-        )
-    except Exception as e:
-        logger.error(f"Ошибка при отображении заказов: {e}")
-        return f"Ошибка: {e}", 500
-
-@app.route('/orders/<path:order_name>/')
-def view_order(order_name):
-    """Просмотр конкретного заказа"""
-    order_path = os.path.join(ORDERS_PATH, order_name)
-    if not os.path.exists(order_path) or not os.path.isdir(order_path):
-        return "Заказ не найден", 404
-    
-    files = []
-    photos = []
-    total_size = 0
-    
-    for f in sorted(os.listdir(order_path)):
-        if f != "информация_о_заказе.txt":
-            file_path = os.path.join(order_path, f)
-            file_size = os.path.getsize(file_path)
-            total_size += file_size
-            is_photo = f.lower().endswith(('.jpg', '.jpeg', '.png'))
-            
-            file_info = {
-                'name': f,
-                'size': file_size,
-                'size_formatted': format_file_size(file_size),
-                'url': f'/orders/{order_name}/{f}',
-                'is_photo': is_photo
-            }
-            files.append(file_info)
-            if is_photo:
-                photos.append(file_info)
-    
-    # Читаем информацию о заказе
-    info = ""
-    info_file = os.path.join(order_path, "информация_о_заказе.txt")
-    if os.path.exists(info_file):
-        with open(info_file, 'r', encoding='utf-8') as f:
-            info = f.read()
-    
-    # Получаем статус из истории
-    status = "new"
-    history = load_orders_history()
-    for h in history:
-        if h.get('order_id') == order_name:
-            status = h.get('status', 'new')
-            break
-    
-    created = datetime.fromtimestamp(os.path.getctime(order_path))
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html lang="ru">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Заказ {order_name}</title>
-        <style>
-            * {{
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }}
-            
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                padding: 20px;
-            }}
-            
-            .container {{
-                max-width: 1200px;
-                margin: 0 auto;
-            }}
-            
-            .header {{
-                background: rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(10px);
-                border-radius: 20px;
-                padding: 30px;
-                margin-bottom: 30px;
-                color: white;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            }}
-            
-            .header h1 {{
-                font-size: 2em;
-                margin-bottom: 10px;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                word-break: break-all;
-            }}
-            
-            .order-meta {{
-                display: flex;
-                gap: 20px;
-                margin-top: 15px;
-                flex-wrap: wrap;
-            }}
-            
-            .meta-item {{
-                background: rgba(255, 255, 255, 0.2);
-                padding: 10px 15px;
-                border-radius: 10px;
-                font-size: 0.9em;
-            }}
-            
-            .nav-links {{
-                display: flex;
-                gap: 15px;
-                margin-bottom: 30px;
-                flex-wrap: wrap;
-            }}
-            
-            .nav-btn {{
-                background: rgba(255, 255, 255, 0.15);
-                backdrop-filter: blur(10px);
-                color: white;
-                text-decoration: none;
-                padding: 12px 25px;
-                border-radius: 12px;
-                display: inline-flex;
-                align-items: center;
-                gap: 10px;
-                transition: all 0.3s ease;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            }}
-            
-            .nav-btn:hover {{
-                background: rgba(255, 255, 255, 0.25);
-                transform: translateY(-2px);
-            }}
-            
-            .content {{
-                background: white;
-                border-radius: 20px;
-                padding: 30px;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-            }}
-            
-            .status-section {{
-                margin-bottom: 30px;
-                padding: 20px;
-                background: #f8f9fa;
-                border-radius: 15px;
-            }}
-            
-            .status-section h2 {{
-                margin-bottom: 15px;
-                color: #333;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }}
-            
-            .status-buttons {{
-                display: flex;
-                flex-wrap: wrap;
-                gap: 10px;
-            }}
-            
-            .status-btn {{
-                padding: 10px 20px;
-                border: none;
-                border-radius: 10px;
-                cursor: pointer;
-                font-size: 0.95em;
-                transition: all 0.2s ease;
-                background: white;
-                border: 1px solid #dee2e6;
-            }}
-            
-            .status-btn:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            }}
-            
-            .status-btn.new {{ background: #e3f2fd; }}
-            .status-btn.processing {{ background: #fff3e0; }}
-            .status-btn.printing {{ background: #e8f5e8; }}
-            .status-btn.ready {{ background: #e8e8f5; }}
-            .status-btn.shipped {{ background: #f3e5f5; }}
-            .status-btn.delivered {{ background: #e8f0fe; }}
-            .status-btn.cancelled {{ background: #ffebee; }}
-            
-            .info-section {{
-                background: #f8f9fa;
-                border-radius: 15px;
-                padding: 20px;
-                margin-bottom: 30px;
-            }}
-            
-            .info-section h2 {{
-                color: #333;
-                margin-bottom: 15px;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                font-size: 1.3em;
-            }}
-            
-            .info-content {{
-                white-space: pre-wrap;
-                font-family: monospace;
-                background: white;
-                padding: 15px;
-                border-radius: 10px;
-                border: 1px solid #eee;
-                max-height: 400px;
-                overflow-y: auto;
-            }}
-            
-            .photos-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-                gap: 15px;
-                margin: 20px 0;
-            }}
-            
-            .photo-card {{
-                background: #f8f9fa;
-                border-radius: 10px;
-                padding: 10px;
-                text-align: center;
-                transition: all 0.3s ease;
-            }}
-            
-            .photo-card:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            }}
-            
-            .photo-img {{
-                max-width: 100%;
-                max-height: 150px;
-                border-radius: 8px;
-                cursor: pointer;
-                transition: all 0.2s ease;
-                object-fit: cover;
-            }}
-            
-            .photo-img:hover {{
-                transform: scale(1.05);
-            }}
-            
-            .photo-name {{
-                margin-top: 10px;
-                font-size: 0.85em;
-                color: #666;
-                word-break: break-all;
-            }}
-            
-            .files-grid {{
-                display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                gap: 15px;
-                margin-top: 20px;
-            }}
-            
-            .file-card {{
-                background: #f8f9fa;
-                border-radius: 12px;
-                padding: 15px;
-                display: flex;
-                align-items: center;
-                gap: 15px;
-                transition: all 0.3s ease;
-                border: 1px solid #eee;
-                text-decoration: none;
-                color: inherit;
-            }}
-            
-            .file-card:hover {{
-                background: #e9ecef;
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            }}
-            
-            .file-icon {{
-                font-size: 2em;
-                min-width: 50px;
-                text-align: center;
-            }}
-            
-            .file-details {{
-                flex: 1;
-            }}
-            
-            .file-name {{
-                font-weight: 500;
-                color: #333;
-                word-break: break-all;
-                margin-bottom: 5px;
-            }}
-            
-            .file-size {{
-                font-size: 0.85em;
-                color: #666;
-            }}
-            
-            .download-all {{
-                display: inline-block;
-                background: #28a745;
-                color: white;
-                text-decoration: none;
-                padding: 15px 30px;
-                border-radius: 12px;
-                font-size: 1.1em;
-                margin-top: 30px;
-                transition: all 0.3s ease;
-                border: none;
-                cursor: pointer;
-            }}
-            
-            .download-all:hover {{
-                background: #218838;
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
-            }}
-        </style>
-        <script>
-            function updateStatus(status) {{
-                fetch(`/orders/{order_name}/status`, {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json',
-                    }},
-                    body: JSON.stringify({{status: status, note: 'Обновлено через веб-интерфейс'}})
-                }})
-                .then(response => response.json())
-                .then(data => {{
-                    if (data.success) {{
-                        location.reload();
-                    }} else {{
-                        alert('Ошибка при обновлении статуса: ' + (data.error || 'неизвестная ошибка'));
-                    }}
-                }})
-                .catch(error => {{
-                    console.error('Error:', error);
-                    alert('Ошибка при обновлении статуса');
-                }});
-            }}
-        </script>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>
-                    <span>📁</span> Заказ: {order_name}
-                </h1>
-                <p>Информация о заказе и файлы</p>
-                <div class="order-meta">
-                    <span class="meta-item">📅 Создан: {created.strftime('%d.%m.%Y %H:%M')}</span>
-                    <span class="meta-item">📦 Файлов: {len(files)}</span>
-                    <span class="meta-item">💾 Размер: {format_file_size(total_size)}</span>
-                    <span class="meta-item">📌 Статус: {get_status_display(status)}</span>
-                </div>
-            </div>
-            
-            <div class="nav-links">
-                <a href="/orders/" class="nav-btn">
-                    <span>←</span> К списку заказов
-                </a>
-                <a href="/" class="nav-btn">
-                    <span>🏠</span> На главную
-                </a>
-            </div>
-            
-            <div class="content">
-                <div class="status-section">
-                    <h2>
-                        <span>📌</span> Управление статусом заказа
-                    </h2>
-                    <div class="status-buttons">
-                        <button class="status-btn new" onclick="updateStatus('new')">🆕 Новый</button>
-                        <button class="status-btn processing" onclick="updateStatus('processing')">🔄 В обработке</button>
-                        <button class="status-btn printing" onclick="updateStatus('printing')">🖨️ В печати</button>
-                        <button class="status-btn ready" onclick="updateStatus('ready')">✅ Готов</button>
-                        <button class="status-btn shipped" onclick="updateStatus('shipped')">📦 Отправлен</button>
-                        <button class="status-btn delivered" onclick="updateStatus('delivered')">🏁 Доставлен</button>
-                        <button class="status-btn cancelled" onclick="updateStatus('cancelled')">❌ Отменен</button>
-                    </div>
+        html = """
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Print Bot - Заказы</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    min-height: 100vh;
+                    padding: 20px;
+                }
+                
+                .container {
+                    max-width: 1400px;
+                    margin: 0 auto;
+                }
+                
+                .header {
+                    background: rgba(255, 255, 255, 0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 30px;
+                    margin-bottom: 30px;
+                    color: white;
+                }
+                
+                .header h1 {
+                    font-size: 2.5em;
+                    margin-bottom: 10px;
+                }
+                
+                .orders-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+                    gap: 25px;
+                }
+                
+                .order-card {
+                    background: white;
+                    border-radius: 20px;
+                    overflow: hidden;
+                    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+                }
+                
+                .order-header {
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    padding: 20px;
+                }
+                
+                .order-header h2 {
+                    font-size: 1.1em;
+                    margin-bottom: 10px;
+                    word-break: break-all;
+                }
+                
+                .order-status {
+                    display: inline-block;
+                    background: rgba(255, 255, 255, 0.2);
+                    padding: 5px 10px;
+                    border-radius: 15px;
+                    font-size: 0.9em;
+                }
+                
+                .order-content {
+                    padding: 20px;
+                }
+                
+                .order-stats {
+                    display: flex;
+                    justify-content: space-between;
+                    margin-bottom: 15px;
+                    padding-bottom: 15px;
+                    border-bottom: 1px solid #eee;
+                }
+                
+                .stat-item {
+                    text-align: center;
+                }
+                
+                .stat-value {
+                    font-size: 1.2em;
+                    font-weight: bold;
+                    color: #333;
+                }
+                
+                .stat-label {
+                    font-size: 0.8em;
+                    color: #666;
+                }
+                
+                .status-menu {
+                    margin: 15px 0;
+                    padding: 15px;
+                    background: #f8f9fa;
+                    border-radius: 10px;
+                }
+                
+                .status-buttons {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 5px;
+                }
+                
+                .status-btn {
+                    padding: 5px 10px;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    font-size: 0.85em;
+                    transition: all 0.2s ease;
+                }
+                
+                .status-btn:hover {
+                    transform: translateY(-2px);
+                }
+                
+                .status-btn.new { background: #e3f2fd; }
+                .status-btn.processing { background: #fff3e0; }
+                .status-btn.printing { background: #e8f5e8; }
+                .status-btn.ready { background: #e8e8f5; }
+                .status-btn.shipped { background: #f3e5f5; }
+                .status-btn.delivered { background: #e8f0fe; }
+                .status-btn.cancelled { background: #ffebee; }
+                
+                .photo-gallery {
+                    display: flex;
+                    gap: 10px;
+                    overflow-x: auto;
+                    padding: 10px 0;
+                }
+                
+                .photo-preview {
+                    width: 80px;
+                    height: 80px;
+                    object-fit: cover;
+                    border-radius: 8px;
+                    cursor: pointer;
+                }
+                
+                .files-list {
+                    margin: 15px 0;
+                    max-height: 200px;
+                    overflow-y: auto;
+                }
+                
+                .file-item {
+                    display: flex;
+                    align-items: center;
+                    padding: 8px;
+                    background: #f8f9fa;
+                    border-radius: 8px;
+                    margin-bottom: 5px;
+                }
+                
+                .file-name {
+                    flex: 1;
+                    font-size: 0.9em;
+                    word-break: break-all;
+                }
+                
+                .file-download {
+                    color: #667eea;
+                    text-decoration: none;
+                }
+                
+                .action-btn {
+                    display: inline-block;
+                    padding: 10px 20px;
+                    background: #28a745;
+                    color: white;
+                    text-decoration: none;
+                    border-radius: 10px;
+                    margin-top: 15px;
+                }
+                
+                .nav-links {
+                    display: flex;
+                    gap: 15px;
+                    margin-bottom: 30px;
+                }
+                
+                .nav-btn {
+                    background: rgba(255, 255, 255, 0.15);
+                    color: white;
+                    text-decoration: none;
+                    padding: 10px 20px;
+                    border-radius: 10px;
+                }
+            </style>
+            <script>
+                function updateStatus(orderId, status) {
+                    fetch(`/orders/${orderId}/status`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({status: status})
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            location.reload();
+                        } else {
+                            alert('Ошибка при обновлении статуса');
+                        }
+                    });
+                }
+            </script>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📦 Заказы на печать</h1>
+                    <p>Всего заказов: """ + str(len(orders)) + """</p>
                 </div>
                 
-                <div class="info-section">
-                    <h2>
-                        <span>📋</span> Информация о заказе
-                    </h2>
-                    <div class="info-content">{info.replace(chr(10), '<br>')}</div>
+                <div class="nav-links">
+                    <a href="/" class="nav-btn">🏠 Главная</a>
+                    <a href="/stats" class="nav-btn">📊 Статистика</a>
                 </div>
                 
-                {f'''
-                <h2 style="margin-bottom: 20px;">📸 Предпросмотр фото</h2>
-                <div class="photos-grid">
-                    {''.join([f'''
-                    <div class="photo-card">
-                        <img src="{p['url']}" class="photo-img" alt="{p['name']}" onclick="window.open('{p['url']}', '_blank')">
-                        <div class="photo-name">{p['name']}</div>
-                    </div>
-                    ''' for p in photos])}
-                </div>
-                ''' if photos else ''}
-                
-                <h2 style="margin: 30px 0 20px 0;">📄 Все файлы</h2>
-                
-                <div class="files-grid">
-                    {''.join([f'''
-                    <a href="{f['url']}" class="file-card" download>
-                        <span class="file-icon">{'📸' if f['is_photo'] else '📄'}</span>
-                        <div class="file-details">
-                            <div class="file-name">{f['name']}</div>
-                            <div class="file-size">{f['size_formatted']}</div>
+                <div class="orders-grid">
+                    {% for order in orders %}
+                    <div class="order-card">
+                        <div class="order-header">
+                            <h2>{{ order.id }}</h2>
+                            <div class="order-status">{{ order.status }}</div>
                         </div>
-                    </a>
-                    ''' for f in files])}
-                </div>
-                
-                <div style="text-align: center; margin-top: 40px;">
-                    <a href="/orders/{order_name}/download" class="download-all">
-                        ⬇️ Скачать все файлы (ZIP)
-                    </a>
+                        
+                        <div class="order-content">
+                            <div class="order-stats">
+                                <div class="stat-item">
+                                    <div class="stat-value">{{ order.file_count }}</div>
+                                    <div class="stat-label">файлов</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value">{{ order.total_size }}</div>
+                                    <div class="stat-label">объем</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-value">{{ order.age_days }}д</div>
+                                    <div class="stat-label">возраст</div>
+                                </div>
+                            </div>
+                            
+                            <div class="status-menu">
+                                <h4>Изменить статус:</h4>
+                                <div class="status-buttons">
+                                    <button class="status-btn new" onclick="updateStatus('{{ order.id }}', 'new')">🆕 Новый</button>
+                                    <button class="status-btn processing" onclick="updateStatus('{{ order.id }}', 'processing')">🔄 В обработке</button>
+                                    <button class="status-btn printing" onclick="updateStatus('{{ order.id }}', 'printing')">🖨️ В печати</button>
+                                    <button class="status-btn ready" onclick="updateStatus('{{ order.id }}', 'ready')">✅ Готов</button>
+                                    <button class="status-btn shipped" onclick="updateStatus('{{ order.id }}', 'shipped')">📦 Отправлен</button>
+                                    <button class="status-btn delivered" onclick="updateStatus('{{ order.id }}', 'delivered')">🏁 Доставлен</button>
+                                    <button class="status-btn cancelled" onclick="updateStatus('{{ order.id }}', 'cancelled')">❌ Отменен</button>
+                                </div>
+                            </div>
+                            
+                            {% if order.photos %}
+                            <div class="photo-gallery">
+                                {% for photo in order.photos[:5] %}
+                                <img src="{{ photo.url }}" class="photo-preview" onclick="window.open('{{ photo.url }}', '_blank')">
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            
+                            <div class="files-list">
+                                {% for file in order.files %}
+                                <div class="file-item">
+                                    <span class="file-name">{{ file.name }} ({{ file.size_formatted }})</span>
+                                    <a href="{{ file.url }}" class="file-download" download>⬇️</a>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            
+                            <a href="/orders/{{ order.id }}/download" class="action-btn">⬇️ Скачать все</a>
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
             </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html
+        </body>
+        </html>
+        """
+        
+        from jinja2 import Template
+        template = Template(html)
+        return template.render(orders=orders)
+    except Exception as e:
+        logger.error(f"Ошибка: {e}")
+        return f"Ошибка: {e}", 500
 
 @app.route('/orders/<path:order_name>/status', methods=['POST'])
 def update_order_status_route(order_name):
@@ -2440,15 +1381,11 @@ def update_order_status_route(order_name):
     try:
         data = request.get_json()
         new_status = data.get('status')
-        note = data.get('note', '')
         
         if not new_status:
             return jsonify({"success": False, "error": "Не указан статус"}), 400
         
-        if new_status not in ORDER_STATUSES:
-            return jsonify({"success": False, "error": "Некорректный статус"}), 400
-        
-        success = update_order_status(order_name, new_status, note)
+        success = update_order_status(order_name, new_status)
         
         if success:
             return jsonify({"success": True})
@@ -2459,12 +1396,6 @@ def update_order_status_route(order_name):
         logger.error(f"Ошибка обновления статуса: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/orders/<path:order_name>/<filename>')
-def download_order_file(order_name, filename):
-    """Скачивание отдельного файла"""
-    order_path = os.path.join(ORDERS_PATH, order_name)
-    return send_from_directory(order_path, filename, as_attachment=True)
-
 @app.route('/orders/<path:order_name>/download')
 def download_all_files(order_name):
     """Скачивание всех файлов заказа в ZIP-архиве"""
@@ -2472,7 +1403,6 @@ def download_all_files(order_name):
     if not os.path.exists(order_path) or not os.path.isdir(order_path):
         return "Заказ не найден", 404
     
-    # Создаем временный ZIP-файл
     temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
     with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
         for root, dirs, files in os.walk(order_path):
@@ -2481,7 +1411,13 @@ def download_all_files(order_name):
                 arcname = os.path.relpath(file_path, order_path)
                 zipf.write(file_path, arcname)
     
-    return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip", mimetype='application/zip')
+    return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip")
+
+@app.route('/orders/<path:order_name>/<filename>')
+def download_order_file(order_name, filename):
+    """Скачивание отдельного файла"""
+    order_path = os.path.join(ORDERS_PATH, order_name)
+    return send_from_directory(order_path, filename, as_attachment=True)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -2497,87 +1433,39 @@ def webhook():
         if update_data:
             logger.info(f"📩 Обновление: {update_data.get('update_id')}")
             update = telegram.Update.de_json(update_data, bot)
-            
-            # Передаем обновление в диспетчер
             dispatcher.process_update(update)
             
         return "OK", 200
     except Exception as e:
         logger.error(f"❌ Ошибка в webhook: {e}")
-        logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @app.route('/health')
 def health():
     """Проверка здоровья"""
-    return jsonify({
-        "status": "ok", 
-        "bot_ready": dispatcher is not None,
-        "orders_count": len(os.listdir(ORDERS_PATH)) if os.path.exists(ORDERS_PATH) else 0,
-        "timestamp": datetime.now().isoformat()
-    })
+    return jsonify({"status": "ok", "bot_ready": dispatcher is not None})
 
 @app.route('/stats')
 def stats():
-    """Статистика заказов"""
-    try:
-        orders_count = 0
-        total_files = 0
-        total_size = 0
-        
-        if os.path.exists(ORDERS_PATH):
-            for item in os.listdir(ORDERS_PATH):
-                item_path = os.path.join(ORDERS_PATH, item)
-                if os.path.isdir(item_path) and item != "orders_history.json":
-                    orders_count += 1
-                    for f in os.listdir(item_path):
-                        if f != "информация_о_заказе.txt":
-                            total_files += 1
-                            total_size += os.path.getsize(os.path.join(item_path, f))
-        
-        # Загружаем историю
-        history = load_orders_history()
-        
-        # Статистика по статусам
-        status_stats = {}
-        for order in history:
-            status = order.get('status', 'new')
-            status_stats[status] = status_stats.get(status, 0) + 1
-        
-        return jsonify({
-            "status": "ok",
-            "orders_count": orders_count,
-            "total_files": total_files,
-            "total_size_bytes": total_size,
-            "total_size_mb": round(total_size / (1024 * 1024), 2),
-            "active_sessions": len(user_sessions),
-            "bot_ready": dispatcher is not None,
-            "orders_folder": ORDERS_PATH,
-            "orders_url": f"{RENDER_URL}/orders/",
-            "status_stats": status_stats,
-            "history_count": len(history)
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
+    """Статистика"""
+    return jsonify({"status": "ok", "active_sessions": len(user_sessions)})
+
+@app.route('/')
+def home():
+    """Главная страница"""
+    return "✅ Бот работает! Используйте Telegram для заказов."
 
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 print("=" * 60)
 print("🚀 ЗАПУСК БОТА")
 print("=" * 60)
 print(f"📁 Папка для заказов: {ORDERS_PATH}")
-print(f"📁 URL для просмотра заказов: {RENDER_URL}/orders/")
 print(f"👤 ID администратора: {ADMIN_CHAT_ID}")
-print(f"📊 Статусы заказов: {len(ORDER_STATUSES)} шт.")
-print(f"🗑️ Автоматическая очистка: 30 дней")
 
-# Создаем бота
 bot = telegram.Bot(token=TOKEN)
-
-# Создаем updater и dispatcher
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
-# Создаем ConversationHandler
 conv_handler = ConversationHandler(
     entry_points=[
         MessageHandler(Filters.document | Filters.photo, handle_file),
@@ -2603,13 +1491,10 @@ conv_handler = ConversationHandler(
         ],
     },
     fallbacks=[CommandHandler("start", start)],
-    name="print_bot_conversation",
-    persistent=False,
 )
 
 dispatcher.add_handler(conv_handler)
 
-# Устанавливаем веб-хук
 webhook_url = f"{RENDER_URL}/webhook"
 updater.bot.set_webhook(url=webhook_url)
 
@@ -2617,7 +1502,6 @@ print(f"✅ Веб-хук: {webhook_url}")
 print("✅ БОТ ГОТОВ К РАБОТЕ!")
 print("=" * 60)
 
-# ========== ЗАПУСК ==========
 if __name__ == "__main__":
     print("🌐 Запуск Flask сервера...")
     app.run(host='0.0.0.0', port=PORT)

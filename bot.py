@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-С новым дизайном и автоматической очисткой
+С функциями: статусы заказов, уведомления клиентам, предпросмотр фото
 """
 
 import os
@@ -16,12 +16,13 @@ import shutil
 import traceback
 import zipfile
 import threading
+import time
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string
 
 # Используем синхронную версию python-telegram-bot
 import telegram
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
 
 import PyPDF2
@@ -57,6 +58,31 @@ except Exception as e:
     print(f"❌ Ошибка создания папки: {e}")
     sys.exit(1)
 
+# ========== ФАЙЛ ДЛЯ ХРАНЕНИЯ ИСТОРИИ ЗАКАЗОВ ==========
+ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
+
+# Загружаем историю заказов
+def load_orders_history():
+    """Загружает историю заказов из JSON файла"""
+    try:
+        if os.path.exists(ORDERS_DB_FILE):
+            with open(ORDERS_DB_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return []
+    except Exception as e:
+        logger.error(f"Ошибка загрузки истории: {e}")
+        return []
+
+def save_order_to_history(order_data):
+    """Сохраняет заказ в историю"""
+    try:
+        history = load_orders_history()
+        history.append(order_data)
+        with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Ошибка сохранения истории: {e}")
+
 # ========== ФУНКЦИЯ ДЛЯ ОЧИСТКИ СТАРЫХ ЗАКАЗОВ ==========
 def clean_old_orders(days=30):
     """Удаляет заказы старше указанного количества дней"""
@@ -65,7 +91,7 @@ def clean_old_orders(days=30):
         count = 0
         for item in os.listdir(ORDERS_PATH):
             item_path = os.path.join(ORDERS_PATH, item)
-            if os.path.isdir(item_path):
+            if os.path.isdir(item_path) and item != "orders_history.json":
                 # Получаем время создания папки
                 created = datetime.fromtimestamp(os.path.getctime(item_path))
                 age = now - created
@@ -93,6 +119,20 @@ def format_file_size(size_bytes):
         return f"{size_bytes / 1024:.1f} KB"
     else:
         return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+# ========== ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ СТАТУСА ЗАКАЗА ==========
+def get_order_status(status_code):
+    """Возвращает текстовое представление статуса заказа"""
+    statuses = {
+        "new": "🆕 Новый",
+        "processing": "🔄 В обработке",
+        "printing": "🖨️ В печати",
+        "ready": "✅ Готов",
+        "shipped": "📦 Отправлен",
+        "delivered": "🏁 Доставлен",
+        "cancelled": "❌ Отменен"
+    }
+    return statuses.get(status_code, status_code)
 
 # ========== ЛОГИРОВАНИЕ ==========
 logging.basicConfig(
@@ -233,12 +273,21 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         
         # Сохраняем информацию о заказе
         info_file = os.path.join(order_folder, "информация_о_заказе.txt")
+        
+        # Подсчитываем отдельно фото и документы
+        photo_files = [ff for ff in files_info if ff['type'] == 'photo']
+        doc_files = [ff for ff in files_info if ff['type'] == 'doc']
+        
+        total_photos = sum(ff['items'] for ff in photo_files)
+        total_pages = sum(ff['items'] for ff in doc_files)
+        
         with open(info_file, 'w', encoding='utf-8') as f:
             f.write(f"ЗАКАЗ ОТ {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
             f.write(f"{'='*50}\n\n")
             f.write(f"Клиент: {order_data['user_info']['first_name']} (@{username})\n")
             f.write(f"ID: {user_id}\n")
-            f.write(f"Телефон: {CONTACT_PHONE}\n\n")
+            f.write(f"Телефон: {CONTACT_PHONE}\n")
+            f.write(f"Статус: 🆕 Новый\n\n")
             
             if order_data['type'] == 'photo':
                 format_names = {"small": "Малый (A6/10x15)", "medium": "Средний (13x18/15x21)", "large": "Большой (A4/21x30)"}
@@ -251,19 +300,13 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             
             f.write(f"Количество копий: {order_data['quantity']}\n\n")
             
-            # Раздельная статистика для фото и документов
-            photo_files = [ff for ff in files_info if ff['type'] == 'photo']
-            doc_files = [ff for ff in files_info if ff['type'] == 'doc']
-            
             if photo_files:
-                total_photos = sum(ff['items'] for ff in photo_files)
                 f.write(f"ФОТО:\n")
                 f.write(f"  • Количество фото: {len(photo_files)}\n")
                 f.write(f"  • Всего фото в оригинале: {total_photos}\n")
                 f.write(f"  • Всего фото к печати: {total_photos * order_data['quantity']}\n\n")
             
             if doc_files:
-                total_pages = sum(ff['items'] for ff in doc_files)
                 f.write(f"ДОКУМЕНТЫ:\n")
                 f.write(f"  • Количество документов: {len(doc_files)}\n")
                 f.write(f"  • Всего страниц в оригинале: {total_pages}\n")
@@ -284,6 +327,27 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             f.write(f"\nВсего файлов: {len(files_info)}")
         
         logger.info(f"📝 Информация о заказе сохранена в {info_file}")
+        
+        # Сохраняем в историю
+        history_entry = {
+            "order_id": f"{clean_name}_{timestamp}",
+            "folder": order_folder,
+            "user_id": user_id,
+            "username": username,
+            "user_name": order_data['user_info']['first_name'],
+            "date": datetime.now().isoformat(),
+            "type": order_data['type'],
+            "quantity": order_data['quantity'],
+            "total_photos": total_photos,
+            "total_pages": total_pages,
+            "total_items": total_photos + total_pages,
+            "total_price": order_data['total'],
+            "delivery": order_data['delivery'],
+            "status": "new",
+            "status_text": "🆕 Новый"
+        }
+        save_order_to_history(history_entry)
+        
         return True, order_folder
     except Exception as e:
         logger.error(f"❌ Ошибка сохранения: {e}")
@@ -817,25 +881,55 @@ def button_handler(update, context):
             total_photos = sum(f['items'] for f in photo_files)
             total_pages = sum(f['items'] for f in doc_files)
             
-            text = "✅ ЗАКАЗ УСПЕШНО ОФОРМЛЕН!\n\n"
-            text += f"👤 Заказчик: {session['user_info']['first_name']}\n"
-            text += f"📦 Файлов: {len(session['files'])}\n"
+            # Уведомление клиенту с предпросмотром (если есть фото)
+            client_message = (
+                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
+                f"👤 Заказчик: {session['user_info']['first_name']}\n"
+                f"📦 Файлов: {len(session['files'])}\n"
+            )
             
             if total_photos > 0:
-                text += f"📸 Фото в оригинале: {total_photos}\n"
-                text += f"📸 Фото к печати: {total_photos * session['quantity']}\n"
+                client_message += f"📸 Фото в оригинале: {total_photos}\n"
+                client_message += f"📸 Фото к печати: {total_photos * session['quantity']}\n"
             if total_pages > 0:
-                text += f"📄 Страниц в оригинале: {total_pages}\n"
-                text += f"📄 Страниц к печати: {total_pages * session['quantity']}\n"
+                client_message += f"📄 Страниц в оригинале: {total_pages}\n"
+                client_message += f"📄 Страниц к печати: {total_pages * session['quantity']}\n"
             
-            text += f"💰 Сумма к оплате: {session['total']} руб.\n"
-            text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
-            text += f"📞 Контактный телефон: {CONTACT_PHONE}\n"
-            text += f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-            text += "Спасибо за заказ! 😊"
+            client_message += (
+                f"💰 Сумма к оплате: {session['total']} руб.\n"
+                f"⏳ Срок выполнения: {session['delivery']}\n\n"
+                f"📞 Контактный телефон: {CONTACT_PHONE}\n"
+                f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
+                "Статус вашего заказа: 🆕 **Новый**\n"
+                "Мы свяжемся с вами для подтверждения!\n\n"
+                "Спасибо за заказ! 😊"
+            )
+            
+            context.bot.send_message(
+                chat_id=user_id,
+                text=client_message,
+                parse_mode="Markdown"
+            )
+            
+            # Если есть фото, отправляем предпросмотр
+            if photo_files:
+                try:
+                    # Отправляем первое фото как предпросмотр
+                    first_photo = photo_files[0]
+                    with open(first_photo['path'], 'rb') as photo:
+                        context.bot.send_photo(
+                            chat_id=user_id,
+                            photo=photo,
+                            caption=f"📸 Пример загруженного фото: {first_photo['name']}"
+                        )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки предпросмотра: {e}")
             
         else:
-            text = "❌ Ошибка при сохранении заказа"
+            context.bot.send_message(
+                chat_id=user_id,
+                text="❌ Ошибка при сохранении заказа"
+            )
         
         # Очищаем временные файлы
         for d in session.get("temp_dirs", []):
@@ -846,7 +940,7 @@ def button_handler(update, context):
         query.message.delete()
         context.bot.send_message(
             chat_id=user_id,
-            text=text,
+            text="Хотите оформить ещё один заказ?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return WAITING_FOR_FILE
@@ -898,7 +992,47 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
-# ========== ВЕБ-ИНТЕРФЕЙС С НОВЫМ ДИЗАЙНОМ ==========
+# ========== ФУНКЦИЯ ДЛЯ ОБНОВЛЕНИЯ СТАТУСА ЗАКАЗА ==========
+def update_order_status(order_name, new_status):
+    """Обновляет статус заказа в истории"""
+    try:
+        history = load_orders_history()
+        for order in history:
+            if order['order_id'] == order_name:
+                old_status = order.get('status', 'new')
+                order['status'] = new_status
+                order['status_text'] = get_order_status(new_status)
+                
+                # Сохраняем изменения
+                with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(history, f, ensure_ascii=False, indent=2)
+                
+                logger.info(f"✅ Статус заказа {order_name} изменен: {old_status} -> {new_status}")
+                
+                # Обновляем файл информации в папке заказа
+                info_file = os.path.join(ORDERS_PATH, order_name, "информация_о_заказе.txt")
+                if os.path.exists(info_file):
+                    with open(info_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # Заменяем строку со статусом
+                    import re
+                    new_content = re.sub(
+                        r'Статус:.*\n',
+                        f'Статус: {get_order_status(new_status)}\n',
+                        content
+                    )
+                    
+                    with open(info_file, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Ошибка обновления статуса: {e}")
+        return False
+
+# ========== ВЕБ-ИНТЕРФЕЙС ==========
 app = Flask(__name__)
 
 # Функция для очистки старых заказов (запускается периодически)
@@ -913,55 +1047,76 @@ threading.Timer(86400, scheduled_cleanup).start()
 
 @app.route('/orders/')
 def list_orders():
-    """Список всех заказов с новым дизайном"""
+    """Список всех заказов"""
     try:
         orders = []
         if os.path.exists(ORDERS_PATH):
             for item in os.listdir(ORDERS_PATH):
                 item_path = os.path.join(ORDERS_PATH, item)
-                if os.path.isdir(item_path):
+                if os.path.isdir(item_path) and item != "orders_history.json":
                     # Получаем информацию о заказе
                     info_file = os.path.join(item_path, "информация_о_заказе.txt")
                     info_text = ""
+                    status = "new"
                     if os.path.exists(info_file):
                         with open(info_file, 'r', encoding='utf-8') as f:
                             info_text = f.read()
+                            # Ищем статус в файле
+                            import re
+                            status_match = re.search(r'Статус: (.*?)\n', info_text)
+                            if status_match:
+                                status = status_match.group(1)
                     
                     # Список файлов
                     files = []
                     total_size = 0
+                    has_photos = False
                     for f in os.listdir(item_path):
                         if f != "информация_о_заказе.txt":
                             file_path = os.path.join(item_path, f)
                             file_size = os.path.getsize(file_path)
                             total_size += file_size
+                            if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                has_photos = True
                             files.append({
                                 'name': f,
                                 'size': file_size,
                                 'size_formatted': format_file_size(file_size),
-                                'url': f'/orders/{item}/{f}'
+                                'url': f'/orders/{item}/{f}',
+                                'is_photo': f.lower().endswith(('.jpg', '.jpeg', '.png'))
                             })
                     
                     # Получаем время создания
                     created = datetime.fromtimestamp(os.path.getctime(item_path))
                     age = datetime.now() - created
                     
+                    # Ищем в истории
+                    history_entry = None
+                    history = load_orders_history()
+                    for h in history:
+                        if h.get('order_id') == item or h.get('folder', '').endswith(item):
+                            history_entry = h
+                            status = get_order_status(h.get('status', 'new'))
+                            break
+                    
                     orders.append({
                         'name': item,
                         'path': item_path,
-                        'info': info_text,
+                        'info': info_text.replace('\n', '<br>'),
                         'files': files,
                         'file_count': len(files),
                         'total_size': format_file_size(total_size),
                         'created': created.strftime('%d.%m.%Y %H:%M:%S'),
                         'age_days': age.days,
-                        'age_hours': age.seconds // 3600
+                        'age_hours': age.seconds // 3600,
+                        'status': status,
+                        'has_photos': has_photos,
+                        'history': history_entry
                     })
         
         # Сортируем по дате (новые сверху)
         orders.sort(key=lambda x: x['created'], reverse=True)
         
-        # HTML шаблон с новым дизайном
         html = """
         <!DOCTYPE html>
         <html lang="ru">
@@ -984,7 +1139,7 @@ def list_orders():
                 }
                 
                 .container {
-                    max-width: 1200px;
+                    max-width: 1400px;
                     margin: 0 auto;
                 }
                 
@@ -1005,10 +1160,6 @@ def list_orders():
                     display: flex;
                     align-items: center;
                     gap: 10px;
-                }
-                
-                .header h1 i {
-                    font-size: 1.2em;
                 }
                 
                 .stats {
@@ -1067,13 +1218,12 @@ def list_orders():
                 .nav-btn:hover {
                     background: rgba(255, 255, 255, 0.25);
                     transform: translateY(-2px);
-                    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
                 }
                 
                 /* Сетка заказов */
                 .orders-grid {
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+                    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
                     gap: 25px;
                 }
                 
@@ -1083,7 +1233,6 @@ def list_orders():
                     overflow: hidden;
                     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
                     transition: all 0.3s ease;
-                    border: 1px solid rgba(255, 255, 255, 0.2);
                 }
                 
                 .order-card:hover {
@@ -1103,6 +1252,7 @@ def list_orders():
                     margin-bottom: 10px;
                     word-break: break-all;
                     opacity: 0.9;
+                    padding-right: 100px;
                 }
                 
                 .order-date {
@@ -1111,18 +1261,18 @@ def list_orders():
                     display: flex;
                     align-items: center;
                     gap: 5px;
-                    margin-bottom: 10px;
                 }
                 
-                .order-badge {
+                .order-status {
                     position: absolute;
                     top: 15px;
                     right: 15px;
                     background: rgba(255, 255, 255, 0.2);
-                    padding: 5px 10px;
+                    padding: 8px 15px;
                     border-radius: 20px;
-                    font-size: 0.8em;
+                    font-size: 0.9em;
                     backdrop-filter: blur(5px);
+                    font-weight: 500;
                 }
                 
                 .order-content {
@@ -1152,6 +1302,49 @@ def list_orders():
                     color: #666;
                     margin-top: 5px;
                 }
+                
+                /* Статус-меню */
+                .status-menu {
+                    margin: 15px 0;
+                    padding: 15px;
+                    background: #f8f9fa;
+                    border-radius: 10px;
+                }
+                
+                .status-menu h4 {
+                    margin-bottom: 10px;
+                    color: #333;
+                }
+                
+                .status-buttons {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                }
+                
+                .status-btn {
+                    padding: 8px 12px;
+                    border: none;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    font-size: 0.85em;
+                    transition: all 0.2s ease;
+                    background: white;
+                    border: 1px solid #dee2e6;
+                }
+                
+                .status-btn:hover {
+                    transform: translateY(-2px);
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                }
+                
+                .status-btn.new { background: #e3f2fd; color: #1976d2; }
+                .status-btn.processing { background: #fff3e0; color: #f57c00; }
+                .status-btn.printing { background: #e8f5e8; color: #388e3c; }
+                .status-btn.ready { background: #e8e8f5; color: #5e35b1; }
+                .status-btn.shipped { background: #f3e5f5; color: #8e24aa; }
+                .status-btn.delivered { background: #e8f0fe; color: #1565c0; }
+                .status-btn.cancelled { background: #ffebee; color: #c62828; }
                 
                 /* Файлы */
                 .files-list {
@@ -1204,6 +1397,19 @@ def list_orders():
                 
                 .file-download:hover {
                     background: #e9ecef;
+                }
+                
+                .photo-preview {
+                    max-width: 100px;
+                    max-height: 100px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                
+                .photo-preview:hover {
+                    transform: scale(1.1);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
                 }
                 
                 /* Кнопки действий */
@@ -1296,13 +1502,36 @@ def list_orders():
                     }
                 }
             </style>
+            <script>
+                function updateStatus(orderName, status) {
+                    fetch(`/orders/${orderName}/status`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({status: status})
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            location.reload();
+                        } else {
+                            alert('Ошибка при обновлении статуса');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Ошибка при обновлении статуса');
+                    });
+                }
+            </script>
         </head>
         <body>
             <div class="container">
                 <!-- Хедер -->
                 <div class="header">
                     <h1>
-                        <i>📦</i> Заказы на печать
+                        <span>📦</span> Заказы на печать
                     </h1>
                     <p>Управление заказами и файлами</p>
                     
@@ -1319,16 +1548,6 @@ def list_orders():
                             <div class="stat-info">
                                 <h3>Всего файлов</h3>
                                 <p>""" + str(sum(o['file_count'] for o in orders)) + """</p>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <span class="stat-icon">💾</span>
-                            <div class="stat-info">
-                                <h3>Общий размер</h3>
-                                <p>""" + format_file_size(sum(os.path.getsize(os.path.join(ORDERS_PATH, o['name'], f)) 
-                                                           for o in orders 
-                                                           for f in os.listdir(os.path.join(ORDERS_PATH, o['name'])) 
-                                                           if f != "информация_о_заказе.txt")) + """</p>
                             </div>
                         </div>
                     </div>
@@ -1356,8 +1575,8 @@ def list_orders():
                             <div class="order-date">
                                 <span>📅</span> {{ order.created }}
                             </div>
-                            <div class="order-badge">
-                                {{ order.age_days }} дн. {{ order.age_hours }} ч.
+                            <div class="order-status">
+                                {{ order.status }}
                             </div>
                         </div>
                         
@@ -1371,14 +1590,46 @@ def list_orders():
                                     <div class="stat-value">{{ order.total_size }}</div>
                                     <div class="stat-label">объем</div>
                                 </div>
+                                <div class="stat-item">
+                                    <div class="stat-value">{{ order.age_days }}д</div>
+                                    <div class="stat-label">возраст</div>
+                                </div>
+                            </div>
+                            
+                            <!-- Меню статусов -->
+                            <div class="status-menu">
+                                <h4>📌 Изменить статус:</h4>
+                                <div class="status-buttons">
+                                    <button class="status-btn new" onclick="updateStatus('{{ order.name }}', 'new')">🆕 Новый</button>
+                                    <button class="status-btn processing" onclick="updateStatus('{{ order.name }}', 'processing')">🔄 В обработке</button>
+                                    <button class="status-btn printing" onclick="updateStatus('{{ order.name }}', 'printing')">🖨️ В печати</button>
+                                    <button class="status-btn ready" onclick="updateStatus('{{ order.name }}', 'ready')">✅ Готов</button>
+                                    <button class="status-btn shipped" onclick="updateStatus('{{ order.name }}', 'shipped')">📦 Отправлен</button>
+                                    <button class="status-btn delivered" onclick="updateStatus('{{ order.name }}', 'delivered')">🏁 Доставлен</button>
+                                    <button class="status-btn cancelled" onclick="updateStatus('{{ order.name }}', 'cancelled')">❌ Отменен</button>
+                                </div>
                             </div>
                             
                             <div class="order-info">{{ order.info|safe }}</div>
                             
+                            <!-- Предпросмотр фото -->
+                            {% if order.has_photos %}
+                            <div style="margin: 10px 0;">
+                                <h4>📸 Предпросмотр:</h4>
+                                <div style="display: flex; gap: 10px; overflow-x: auto; padding: 10px 0;">
+                                    {% for file in order.files %}
+                                        {% if file.is_photo %}
+                                        <img src="{{ file.url }}" class="photo-preview" alt="{{ file.name }}" onclick="window.open('{{ file.url }}', '_blank')">
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+                            
                             <div class="files-list">
                                 {% for file in order.files %}
                                 <div class="file-item">
-                                    <span class="file-icon">📄</span>
+                                    <span class="file-icon">{{ '📸' if file.is_photo else '📄' }}</span>
                                     <div class="file-info">
                                         <div class="file-name">{{ file.name }}</div>
                                         <div class="file-size">{{ file.size_formatted }}</div>
@@ -1390,7 +1641,7 @@ def list_orders():
                             
                             <div class="order-actions">
                                 <a href="/orders/{{ order.name }}/" class="action-btn btn-view">
-                                    <span>👁️</span> Просмотр
+                                    <span>👁️</span> Подробнее
                                 </a>
                                 <a href="/orders/{{ order.name }}/download" class="action-btn btn-download-all">
                                     <span>⬇️</span> Все файлы
@@ -1418,33 +1669,62 @@ def list_orders():
         logger.error(f"Ошибка при отображении заказов: {e}")
         return f"Ошибка: {e}", 500
 
+@app.route('/orders/<path:order_name>/status', methods=['POST'])
+def update_status(order_name):
+    """Обновление статуса заказа"""
+    try:
+        data = request.get_json()
+        new_status = data.get('status')
+        
+        if not new_status:
+            return jsonify({"success": False, "error": "No status provided"}), 400
+        
+        success = update_order_status(order_name, new_status)
+        
+        return jsonify({"success": success})
+    except Exception as e:
+        logger.error(f"Ошибка обновления статуса: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/orders/<path:order_name>/')
 def view_order(order_name):
-    """Просмотр конкретного заказа с новым дизайном"""
+    """Просмотр конкретного заказа"""
     order_path = os.path.join(ORDERS_PATH, order_name)
     if not os.path.exists(order_path) or not os.path.isdir(order_path):
         return "Заказ не найден", 404
     
     files = []
     total_size = 0
+    photo_files = []
     for f in os.listdir(order_path):
         file_path = os.path.join(order_path, f)
         if os.path.isfile(file_path) and f != "информация_о_заказе.txt":
             file_size = os.path.getsize(file_path)
             total_size += file_size
-            files.append({
+            is_photo = f.lower().endswith(('.jpg', '.jpeg', '.png'))
+            file_info = {
                 'name': f,
                 'size': file_size,
                 'size_formatted': format_file_size(file_size),
-                'url': f'/orders/{order_name}/{f}'
-            })
+                'url': f'/orders/{order_name}/{f}',
+                'is_photo': is_photo
+            }
+            files.append(file_info)
+            if is_photo:
+                photo_files.append(file_info)
     
     # Читаем информацию о заказе
     info = ""
+    status = "🆕 Новый"
     info_file = os.path.join(order_path, "информация_о_заказе.txt")
     if os.path.exists(info_file):
         with open(info_file, 'r', encoding='utf-8') as f:
             info = f.read()
+            # Ищем статус в файле
+            import re
+            status_match = re.search(r'Статус: (.*?)\n', info)
+            if status_match:
+                status = status_match.group(1)
     
     created = datetime.fromtimestamp(os.path.getctime(order_path))
     
@@ -1470,7 +1750,7 @@ def view_order(order_name):
             }}
             
             .container {{
-                max-width: 1000px;
+                max-width: 1200px;
                 margin: 0 auto;
             }}
             
@@ -1540,6 +1820,51 @@ def view_order(order_name):
                 box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
             }}
             
+            .status-section {{
+                margin-bottom: 30px;
+                padding: 20px;
+                background: #f8f9fa;
+                border-radius: 15px;
+            }}
+            
+            .status-section h2 {{
+                margin-bottom: 15px;
+                color: #333;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }}
+            
+            .status-buttons {{
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+            }}
+            
+            .status-btn {{
+                padding: 10px 20px;
+                border: none;
+                border-radius: 10px;
+                cursor: pointer;
+                font-size: 0.95em;
+                transition: all 0.2s ease;
+                background: white;
+                border: 1px solid #dee2e6;
+            }}
+            
+            .status-btn:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }}
+            
+            .status-btn.new {{ background: #e3f2fd; color: #1976d2; }}
+            .status-btn.processing {{ background: #fff3e0; color: #f57c00; }}
+            .status-btn.printing {{ background: #e8f5e8; color: #388e3c; }}
+            .status-btn.ready {{ background: #e8e8f5; color: #5e35b1; }}
+            .status-btn.shipped {{ background: #f3e5f5; color: #8e24aa; }}
+            .status-btn.delivered {{ background: #e8f0fe; color: #1565c0; }}
+            .status-btn.cancelled {{ background: #ffebee; color: #c62828; }}
+            
             .info-section {{
                 background: #f8f9fa;
                 border-radius: 15px;
@@ -1563,8 +1888,47 @@ def view_order(order_name):
                 padding: 15px;
                 border-radius: 10px;
                 border: 1px solid #eee;
-                max-height: 300px;
+                max-height: 400px;
                 overflow-y: auto;
+            }}
+            
+            .photos-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                gap: 15px;
+                margin: 20px 0;
+            }}
+            
+            .photo-card {{
+                background: #f8f9fa;
+                border-radius: 10px;
+                padding: 10px;
+                text-align: center;
+                transition: all 0.3s ease;
+            }}
+            
+            .photo-card:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            }}
+            
+            .photo-img {{
+                max-width: 100%;
+                max-height: 150px;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+            }}
+            
+            .photo-img:hover {{
+                transform: scale(1.05);
+            }}
+            
+            .photo-name {{
+                margin-top: 10px;
+                font-size: 0.85em;
+                color: #666;
+                word-break: break-all;
             }}
             
             .files-grid {{
@@ -1661,6 +2025,29 @@ def view_order(order_name):
                 color: #333;
             }}
         </style>
+        <script>
+            function updateStatus(status) {{
+                fetch(`/orders/{order_name}/status`, {{
+                    method: 'POST',
+                    headers: {{
+                        'Content-Type': 'application/json',
+                    }},
+                    body: JSON.stringify({{status: status}})
+                }})
+                .then(response => response.json())
+                .then(data => {{
+                    if (data.success) {{
+                        location.reload();
+                    }} else {{
+                        alert('Ошибка при обновлении статуса');
+                    }}
+                }})
+                .catch(error => {{
+                    console.error('Error:', error);
+                    alert('Ошибка при обновлении статуса');
+                }});
+            }}
+        </script>
     </head>
     <body>
         <div class="container">
@@ -1673,6 +2060,7 @@ def view_order(order_name):
                     <span class="meta-item">📅 Создан: {created.strftime('%d.%m.%Y %H:%M:%S')}</span>
                     <span class="meta-item">📦 Файлов: {len(files)}</span>
                     <span class="meta-item">💾 Размер: {format_file_size(total_size)}</span>
+                    <span class="meta-item">📌 Текущий статус: {status}</span>
                 </div>
             </div>
             
@@ -1686,19 +2074,48 @@ def view_order(order_name):
             </div>
             
             <div class="content">
+                <!-- Управление статусом -->
+                <div class="status-section">
+                    <h2>
+                        <span>📌</span> Управление статусом заказа
+                    </h2>
+                    <div class="status-buttons">
+                        <button class="status-btn new" onclick="updateStatus('new')">🆕 Новый</button>
+                        <button class="status-btn processing" onclick="updateStatus('processing')">🔄 В обработке</button>
+                        <button class="status-btn printing" onclick="updateStatus('printing')">🖨️ В печати</button>
+                        <button class="status-btn ready" onclick="updateStatus('ready')">✅ Готов</button>
+                        <button class="status-btn shipped" onclick="updateStatus('shipped')">📦 Отправлен</button>
+                        <button class="status-btn delivered" onclick="updateStatus('delivered')">🏁 Доставлен</button>
+                        <button class="status-btn cancelled" onclick="updateStatus('cancelled')">❌ Отменен</button>
+                    </div>
+                </div>
+                
                 <div class="info-section">
                     <h2>
                         <span>📋</span> Информация о заказе
                     </h2>
-                    <div class="info-content">{info.replace('\n', '<br>')}</div>
+                    <div class="info-content">{info.replace(chr(10), '<br>')}</div>
                 </div>
                 
-                <h2 style="margin-bottom: 20px;">📄 Файлы</h2>
+                <!-- Предпросмотр фото -->
+                {f'''
+                <h2 style="margin-bottom: 20px;">📸 Предпросмотр фото</h2>
+                <div class="photos-grid">
+                    {''.join([f'''
+                    <div class="photo-card">
+                        <img src="{f['url']}" class="photo-img" alt="{f['name']}" onclick="window.open('{f['url']}', '_blank')">
+                        <div class="photo-name">{f['name']}</div>
+                    </div>
+                    ''' for f in photo_files])}
+                </div>
+                ''' if photo_files else ''}
+                
+                <h2 style="margin: 30px 0 20px 0;">📄 Все файлы</h2>
                 
                 <div class="files-grid">
                     {''.join([f'''
                     <a href="{f['url']}" class="file-card" download>
-                        <span class="file-icon">📄</span>
+                        <span class="file-icon">{'📸' if f['is_photo'] else '📄'}</span>
                         <div class="file-details">
                             <div class="file-name">{f['name']}</div>
                             <div class="file-size">{f['size_formatted']}</div>
@@ -1707,7 +2124,7 @@ def view_order(order_name):
                     ''' for f in files])}
                 </div>
                 
-                <div style="text-align: center;">
+                <div style="text-align: center; margin-top: 40px;">
                     <a href="/orders/{order_name}/download" class="download-all">
                         ⬇️ Скачать все файлы (ZIP)
                     </a>
@@ -1788,12 +2205,21 @@ def stats():
         if os.path.exists(ORDERS_PATH):
             for item in os.listdir(ORDERS_PATH):
                 item_path = os.path.join(ORDERS_PATH, item)
-                if os.path.isdir(item_path):
+                if os.path.isdir(item_path) and item != "orders_history.json":
                     orders_count += 1
                     for f in os.listdir(item_path):
                         if f != "информация_о_заказе.txt":
                             total_files += 1
                             total_size += os.path.getsize(os.path.join(item_path, f))
+        
+        # Загружаем историю
+        history = load_orders_history()
+        
+        # Статистика по статусам
+        status_stats = {}
+        for order in history:
+            status = order.get('status', 'new')
+            status_stats[status] = status_stats.get(status, 0) + 1
         
         return jsonify({
             "status": "ok",
@@ -1804,7 +2230,9 @@ def stats():
             "active_sessions": len(user_sessions),
             "bot_ready": dispatcher is not None,
             "orders_folder": ORDERS_PATH,
-            "orders_url": f"{RENDER_URL}/orders/"
+            "orders_url": f"{RENDER_URL}/orders/",
+            "status_stats": status_stats,
+            "history_count": len(history)
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -1814,6 +2242,11 @@ def home():
     """Главная страница с новым дизайном"""
     current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
     orders_count = len(os.listdir(ORDERS_PATH)) if os.path.exists(ORDERS_PATH) else 0
+    history = load_orders_history()
+    
+    # Подсчет статистики
+    total_revenue = sum(order.get('total_price', 0) for order in history)
+    total_items = sum(order.get('total_items', 0) for order in history)
     
     return f"""
     <!DOCTYPE html>
@@ -2001,17 +2434,17 @@ def home():
                     <div class="stat-card">
                         <div class="stat-icon">📦</div>
                         <div class="stat-value">{orders_count}</div>
-                        <div class="stat-label">заказов</div>
+                        <div class="stat-label">активных заказов</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">📸</div>
-                        <div class="stat-value">24/7</div>
-                        <div class="stat-label">работа</div>
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-value">{len(history)}</div>
+                        <div class="stat-label">всего заказов</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-icon">⚡</div>
-                        <div class="stat-value">1-3</div>
-                        <div class="stat-label">дня</div>
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-value">{total_revenue}</div>
+                        <div class="stat-label">руб. прибыль</div>
                     </div>
                 </div>
             </div>

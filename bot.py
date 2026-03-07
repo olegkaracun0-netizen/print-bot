@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Ссылки на заказы только для админа
+Полное разделение фото и документов
 """
 
 import os
@@ -117,14 +117,14 @@ def extract_number_from_text(text):
     return int(numbers[0]) if numbers else None
 
 def count_items_in_file(file_path, file_name):
-    """Подсчет количества единиц в файле (для фото = 1, для документов = страницы)"""
+    """Подсчет количества в файле (фото = 1, документы = страницы)"""
     try:
         if file_name.lower().endswith('.pdf'):
             with open(file_path, 'rb') as f:
                 pdf = PyPDF2.PdfReader(f)
                 page_count = len(pdf.pages)
-                logger.info(f"📄 PDF: {file_name} - {page_count} стр.")
-                return page_count, "страниц"
+                logger.info(f"📄 PDF: {file_name} - {page_count} страниц")
+                return page_count, "страниц", "документ"
                 
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
@@ -135,18 +135,18 @@ def count_items_in_file(file_path, file_name):
             if tables_count > 0:
                 estimated_pages += tables_count // 2
             
-            logger.info(f"📄 Word: {file_name} - {estimated_pages} стр.")
-            return estimated_pages, "страниц"
+            logger.info(f"📄 Word: {file_name} - {estimated_pages} страниц")
+            return estimated_pages, "страниц", "документ"
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
             # Для фото всегда 1 фото
             logger.info(f"📸 Фото: {file_name} - 1 фото")
-            return 1, "фото"
+            return 1, "фото", "фото"
             
-        return 1, "единиц"
+        return 1, "единиц", "неизвестно"
     except Exception as e:
         logger.error(f"Ошибка подсчета: {e}")
-        return 1, "единиц"
+        return 1, "единиц", "неизвестно"
 
 def download_file(file_obj, file_name):
     """Скачивает файл во временную папку"""
@@ -212,18 +212,37 @@ def save_order_to_folder(user_id, username, order_data, files_info):
                 f.write(f"Тип: Документы\n")
                 f.write(f"Печать: {color_names[order_data['color']]}\n")
             
-            f.write(f"Количество копий: {order_data['quantity']}\n")
-            f.write(f"Всего единиц в оригинале: {order_data['total_items']}\n")
-            f.write(f"Всего единиц к печати: {order_data['total_items'] * order_data['quantity']}\n")
-            f.write(f"Сумма к оплате: {order_data['total']} руб.\n")
+            f.write(f"Количество копий: {order_data['quantity']}\n\n")
+            
+            # Раздельная статистика для фото и документов
+            photo_files = [ff for ff in files_info if ff['type'] == 'photo']
+            doc_files = [ff for ff in files_info if ff['type'] == 'doc']
+            
+            if photo_files:
+                total_photos = sum(ff['items'] for ff in photo_files)
+                f.write(f"ФОТО:\n")
+                f.write(f"  • Количество фото: {len(photo_files)}\n")
+                f.write(f"  • Всего фото в оригинале: {total_photos}\n")
+                f.write(f"  • Всего фото к печати: {total_photos * order_data['quantity']}\n\n")
+            
+            if doc_files:
+                total_pages = sum(ff['items'] for ff in doc_files)
+                f.write(f"ДОКУМЕНТЫ:\n")
+                f.write(f"  • Количество документов: {len(doc_files)}\n")
+                f.write(f"  • Всего страниц в оригинале: {total_pages}\n")
+                f.write(f"  • Всего страниц к печати: {total_pages * order_data['quantity']}\n\n")
+            
+            f.write(f"ИТОГО К ОПЛАТЕ: {order_data['total']} руб.\n")
             f.write(f"Срок выполнения: {order_data['delivery']}\n\n")
             
             f.write("ФАЙЛЫ:\n")
             for i, file_info in enumerate(files_info, 1):
                 icon = "📸" if file_info['type'] == 'photo' else "📄"
+                type_text = "фото" if file_info['type'] == 'photo' else "документ"
+                unit_text = "фото" if file_info['type'] == 'photo' else "страниц"
                 f.write(f"{icon} {i}. {file_info['name']}\n")
-                f.write(f"   • Тип: {'Фото' if file_info['type'] == 'photo' else 'Документ'}\n")
-                f.write(f"   • Количество: {file_info['items']} {file_info['unit']}\n")
+                f.write(f"   • Тип: {type_text}\n")
+                f.write(f"   • Количество: {file_info['items']} {unit_text}\n")
             
             f.write(f"\nВсего файлов: {len(files_info)}")
         
@@ -238,34 +257,41 @@ def send_admin_notification(order_data, order_folder):
     """Отправляет уведомление админу о новом заказе"""
     try:
         order_name = os.path.basename(order_folder)
-        # ВАЖНО: добавляем слеш в конце URL
         order_url = f"{RENDER_URL}/orders/{order_name}/"
         
+        # Подсчитываем отдельно фото и документы
+        photo_files = [f for f in order_data['files'] if f['type'] == 'photo']
+        doc_files = [f for f in order_data['files'] if f['type'] == 'doc']
+        
+        total_photos = sum(f['items'] for f in photo_files)
+        total_pages = sum(f['items'] for f in doc_files)
+        
         # Формируем сообщение для админа
-        admin_message = (
-            f"🆕 НОВЫЙ ЗАКАЗ!\n\n"
-            f"👤 Клиент: {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
-            f"🆔 ID: {order_data['user_info']['user_id']}\n\n"
-            f"📦 Детали заказа:\n"
-            f"• Тип: {'Фото' if order_data['type'] == 'photo' else 'Документы'}\n"
-        )
+        admin_message = f"🆕 НОВЫЙ ЗАКАЗ!\n\n"
+        admin_message += f"👤 Клиент: {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
+        admin_message += f"🆔 ID: {order_data['user_info']['user_id']}\n\n"
         
         if order_data['type'] == 'photo':
             format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
-            admin_message += f"• Формат: {format_names[order_data['format']]}\n"
+            admin_message += f"📸 Тип: Фото\n"
+            admin_message += f"📸 Формат: {format_names[order_data['format']]}\n"
         else:
             color_names = {"bw": "Черно-белая", "color": "Цветная"}
-            admin_message += f"• Печать: {color_names[order_data['color']]}\n"
+            admin_message += f"📄 Тип: Документы\n"
+            admin_message += f"📄 Печать: {color_names[order_data['color']]}\n"
         
-        admin_message += (
-            f"• Копий: {order_data['quantity']}\n"
-            f"• Файлов: {len(order_data['files'])}\n"
-            f"• Всего единиц в оригинале: {order_data['total_items']}\n"
-            f"💰 Сумма: {order_data['total']} руб.\n"
-            f"⏳ Срок: {order_data['delivery']}\n\n"
-            f"🔗 Ссылка для скачивания:\n{order_url}\n\n"
-            f"📁 Папка на сервере:\n{order_folder}"
-        )
+        admin_message += f"📦 Копий: {order_data['quantity']}\n"
+        admin_message += f"📦 Файлов: {len(order_data['files'])}\n"
+        
+        if photo_files:
+            admin_message += f"📸 Фото: {len(photo_files)} файлов, {total_photos} фото в оригинале\n"
+        if doc_files:
+            admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц в оригинале\n"
+        
+        admin_message += f"💰 Сумма: {order_data['total']} руб.\n"
+        admin_message += f"⏳ Срок: {order_data['delivery']}\n\n"
+        admin_message += f"🔗 Ссылка для скачивания:\n{order_url}\n\n"
+        admin_message += f"📁 Папка на сервере:\n{order_folder}"
         
         # Отправляем админу
         if bot:
@@ -365,7 +391,8 @@ def process_media_group(user_id, media_group_id, context):
             user_sessions[user_id] = {
                 "files": [],
                 "temp_dirs": [],
-                "total_items": 0,
+                "total_photos": 0,
+                "total_pages": 0,
                 "user_info": {
                     "user_id": user_id,
                     "username": messages[0].from_user.username or messages[0].from_user.first_name,
@@ -373,6 +400,12 @@ def process_media_group(user_id, media_group_id, context):
                     "last_name": messages[0].from_user.last_name or ""
                 }
             }
+        else:
+            # Обновляем счетчики, если сессия уже есть
+            if "total_photos" not in user_sessions[user_id]:
+                user_sessions[user_id]["total_photos"] = 0
+            if "total_pages" not in user_sessions[user_id]:
+                user_sessions[user_id]["total_pages"] = 0
         
         # Обрабатываем все файлы из группы
         doc_count = 0
@@ -408,19 +441,25 @@ def process_media_group(user_id, media_group_id, context):
             if not file_path:
                 continue
             
-            # Считаем количество (для фото = 1, для документов = страницы)
-            items, unit = count_items_in_file(file_path, file_name)
+            # Считаем количество
+            items, unit, type_name = count_items_in_file(file_path, file_name)
             
-            # Сохраняем в сессию
-            user_sessions[user_id]["files"].append({
+            # Сохраняем в сессию с правильным типом
+            file_info = {
                 "path": file_path,
                 "name": file_name,
                 "type": file_type,
                 "items": items,
-                "unit": unit
-            })
+                "unit": unit,
+                "type_name": type_name
+            }
+            user_sessions[user_id]["files"].append(file_info)
             user_sessions[user_id]["temp_dirs"].append(temp_dir)
-            user_sessions[user_id]["total_items"] += items
+            
+            if file_type == 'photo':
+                user_sessions[user_id]["total_photos"] += items
+            else:
+                user_sessions[user_id]["total_pages"] += items
         
         if not user_sessions[user_id]["files"]:
             context.bot.send_message(
@@ -430,14 +469,20 @@ def process_media_group(user_id, media_group_id, context):
             return
         
         files_count = len(user_sessions[user_id]["files"])
-        total_items = user_sessions[user_id]["total_items"]
+        total_photos = user_sessions[user_id]["total_photos"]
+        total_pages = user_sessions[user_id]["total_pages"]
         
         text = f"✅ Загружено {files_count} файлов!\n\n📊 Статистика:\n"
         if photo_count > 0:
             text += f"📸 Фото: {photo_count}\n"
         if doc_count > 0:
             text += f"📄 Документы: {doc_count}\n"
-        text += f"📊 Всего единиц: {total_items}\n\n"
+        
+        if total_photos > 0:
+            text += f"📸 Всего фото: {total_photos}\n"
+        if total_pages > 0:
+            text += f"📄 Всего страниц: {total_pages}\n"
+        text += "\n"
         
         # Предлагаем выбор (если есть документы, приоритет у них)
         if doc_count > 0:
@@ -478,7 +523,8 @@ def process_single_file(update, context):
         user_sessions[user_id] = {
             "files": [],
             "temp_dirs": [],
-            "total_items": 0,
+            "total_photos": 0,
+            "total_pages": 0,
             "user_info": {
                 "user_id": user_id,
                 "username": update.effective_user.username or update.effective_user.first_name,
@@ -486,6 +532,12 @@ def process_single_file(update, context):
                 "last_name": update.effective_user.last_name or ""
             }
         }
+    else:
+        # Обновляем счетчики, если сессия уже есть
+        if "total_photos" not in user_sessions[user_id]:
+            user_sessions[user_id]["total_photos"] = 0
+        if "total_pages" not in user_sessions[user_id]:
+            user_sessions[user_id]["total_pages"] = 0
     
     # Определяем тип файла
     file_obj = None
@@ -516,32 +568,44 @@ def process_single_file(update, context):
         message.reply_text("❌ Ошибка загрузки")
         return WAITING_FOR_FILE
     
-    # Считаем количество (для фото = 1, для документов = страницы)
-    items, unit = count_items_in_file(file_path, file_name)
+    # Считаем количество
+    items, unit, type_name = count_items_in_file(file_path, file_name)
     
     # Сохраняем в сессию
-    user_sessions[user_id]["files"].append({
+    file_info = {
         "path": file_path,
         "name": file_name,
         "type": file_type,
         "items": items,
-        "unit": unit
-    })
+        "unit": unit,
+        "type_name": type_name
+    }
+    user_sessions[user_id]["files"].append(file_info)
     user_sessions[user_id]["temp_dirs"].append(temp_dir)
-    user_sessions[user_id]["total_items"] += items
+    
+    if file_type == 'photo':
+        user_sessions[user_id]["total_photos"] += items
+    else:
+        user_sessions[user_id]["total_pages"] += items
     
     # Статистика
     files_count = len(user_sessions[user_id]["files"])
     photo_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'photo')
     doc_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'doc')
-    total_items = user_sessions[user_id]["total_items"]
+    total_photos = user_sessions[user_id]["total_photos"]
+    total_pages = user_sessions[user_id]["total_pages"]
     
     text = f"✅ Файл добавлен!\n\n📊 Статистика:\n"
     if photo_count > 0:
         text += f"📸 Фото: {photo_count}\n"
     if doc_count > 0:
         text += f"📄 Документы: {doc_count}\n"
-    text += f"📊 Всего единиц: {total_items}\n\n"
+    
+    if total_photos > 0:
+        text += f"📸 Всего фото: {total_photos}\n"
+    if total_pages > 0:
+        text += f"📄 Всего страниц: {total_pages}\n"
+    text += "\n"
     
     # Предлагаем выбор
     if doc_count > 0:
@@ -607,9 +671,13 @@ def button_handler(update, context):
     if data.startswith("doc_"):
         user_sessions[user_id]["type"] = "doc"
         user_sessions[user_id]["color"] = data.split("_")[1]
-        total_items = user_sessions[user_id]["total_items"]
+        total_photos = user_sessions[user_id]["total_photos"]
+        total_pages = user_sessions[user_id]["total_pages"]
+        total_items = total_photos + total_pages
         query.edit_message_text(
             f"🔢 В файлах всего {total_items} единиц.\n"
+            f"📸 Фото: {total_photos}\n"
+            f"📄 Страниц: {total_pages}\n\n"
             f"Сколько копий каждого документа напечатать?\n"
             f"(Каждая копия = {total_items} единиц)\n"
             f"Введите число или выберите из вариантов:",
@@ -630,17 +698,23 @@ def button_handler(update, context):
         file_type = session["type"]
         
         total = 0
-        total_items = 0
+        total_photos_result = 0
+        total_pages_result = 0
         details = "📊 ДЕТАЛЬНЫЙ РАСЧЁТ:\n\n"
+        
+        for i, f in enumerate(files, 1):
+            if f['type'] == 'photo':
+                total_photos_result += f['items'] * quantity
+            else:
+                total_pages_result += f['items'] * quantity
         
         for i, f in enumerate(files, 1):
             if file_type == "photo":
                 price_dict = PHOTO_PRICES[session["format"]]
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
-                total_items += f['items'] * quantity
                 details += f"📸 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} {f['unit']} × {quantity} копий = {f['items'] * quantity} {f['unit']}\n"
+                details += f"   • {f['items']} фото × {quantity} копий = {f['items'] * quantity} фото\n"
                 details += f"   • {file_total // quantity} руб./копия\n"
                 details += f"   • Итого: {file_total} руб.\n\n"
             else:
@@ -648,20 +722,23 @@ def button_handler(update, context):
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
-                total_items += file_items
                 details += f"📄 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} {f['unit']} × {quantity} копий = {file_items} {f['unit']}\n"
-                details += f"   • {file_total // file_items} руб./{f['unit'][:-1] if f['unit'] == 'страниц' else f['unit'][:-1]}\n"
+                details += f"   • {f['items']} стр. × {quantity} копий = {file_items} стр.\n"
+                details += f"   • {file_total // file_items} руб./стр.\n"
                 details += f"   • Итого: {file_total} руб.\n\n"
         
         session["total"] = total
-        session["total_items"] = total_items
-        session["delivery"] = estimate_delivery_time(total_items)
+        session["total_photos"] = total_photos_result
+        session["total_pages"] = total_pages_result
+        session["delivery"] = estimate_delivery_time(total_photos_result + total_pages_result)
         
         text = f"{details}\n"
         text += "📋 ПРОВЕРЬТЕ ЗАКАЗ:\n\n"
         text += f"📦 Всего файлов: {len(files)}\n"
-        text += f"📊 Всего единиц к печати: {total_items}\n"
+        if total_photos_result > 0:
+            text += f"📸 Всего фото к печати: {total_photos_result}\n"
+        if total_pages_result > 0:
+            text += f"📄 Всего страниц к печати: {total_pages_result}\n"
         text += f"💰 ИТОГОВАЯ СУММА: {total} руб.\n"
         text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
         text += "Всё верно?"
@@ -696,18 +773,29 @@ def button_handler(update, context):
             # Отправляем уведомление админу
             send_admin_notification(session, folder)
             
-            text = (
-                "✅ ЗАКАЗ УСПЕШНО ОФОРМЛЕН!\n\n"
-                f"👤 Заказчик: {session['user_info']['first_name']}\n"
-                f"📦 Файлов: {len(session['files'])}\n"
-                f"📊 Всего единиц в оригинале: {session['total_items']}\n"
-                f"📊 Всего единиц к печати: {session['total_items'] * session['quantity']}\n"
-                f"💰 Сумма к оплате: {session['total']} руб.\n"
-                f"⏳ Срок выполнения: {session['delivery']}\n\n"
-                f"📞 Контактный телефон: {CONTACT_PHONE}\n"
-                f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                "Спасибо за заказ! 😊"
-            )
+            # Подсчитываем для сообщения пользователю
+            photo_files = [f for f in session['files'] if f['type'] == 'photo']
+            doc_files = [f for f in session['files'] if f['type'] == 'doc']
+            
+            total_photos = sum(f['items'] for f in photo_files)
+            total_pages = sum(f['items'] for f in doc_files)
+            
+            text = "✅ ЗАКАЗ УСПЕШНО ОФОРМЛЕН!\n\n"
+            text += f"👤 Заказчик: {session['user_info']['first_name']}\n"
+            text += f"📦 Файлов: {len(session['files'])}\n"
+            
+            if total_photos > 0:
+                text += f"📸 Фото в оригинале: {total_photos}\n"
+                text += f"📸 Фото к печати: {total_photos * session['quantity']}\n"
+            if total_pages > 0:
+                text += f"📄 Страниц в оригинале: {total_pages}\n"
+                text += f"📄 Страниц к печати: {total_pages * session['quantity']}\n"
+            
+            text += f"💰 Сумма к оплате: {session['total']} руб.\n"
+            text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
+            text += f"📞 Контактный телефон: {CONTACT_PHONE}\n"
+            text += f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
+            text += "Спасибо за заказ! 😊"
             
         else:
             text = "❌ Ошибка при сохранении заказа"

@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлена кнопка отмены
+Исправлена кнопка отмены при выборе количества
 """
 
 import os
@@ -753,7 +753,7 @@ def process_single_file(update, context):
     message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return WAITING_FOR_FILE
 
-def cancel_order(user_id, query=None):
+def cancel_order(user_id, query=None, context=None):
     """Общая функция для отмены заказа"""
     if user_id in user_sessions:
         if "temp_dirs" in user_sessions[user_id]:
@@ -771,10 +771,25 @@ def cancel_order(user_id, query=None):
     
     # Отправляем или редактируем сообщение
     if query:
-        query.edit_message_text(
-            "❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
+        try:
+            query.edit_message_text(
+                "❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
+                reply_markup=reply_markup
+            )
+        except:
+            if context:
+                context.bot.send_message(
+                    chat_id=user_id,
+                    text="❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
+                    reply_markup=reply_markup
+                )
+    elif context:
+        context.bot.send_message(
+            chat_id=user_id,
+            text="❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
             reply_markup=reply_markup
         )
+    
     return WAITING_FOR_FILE
 
 def button_handler(update, context):
@@ -786,13 +801,13 @@ def button_handler(update, context):
     
     logger.info(f"🔘 Callback: {data} от {user_id}")
     
+    # Отмена заказа - обрабатываем ВСЕГДА в первую очередь
+    if data == "cancel":
+        return cancel_order(user_id, query, context)
+    
     if data == "add_more":
         query.edit_message_text("📤 Отправьте следующие файлы")
         return WAITING_FOR_FILE
-    
-    if data == "cancel":
-        # Используем общую функцию отмены
-        return cancel_order(user_id, query)
     
     if data == "new_order":
         # Очищаем сессию и начинаем новый заказ
@@ -813,6 +828,9 @@ def button_handler(update, context):
         return WAITING_FOR_FILE
     
     if data.startswith("photo_"):
+        if user_id not in user_sessions:
+            return cancel_order(user_id, query, context)
+        
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = data.split("_")[1]
         query.edit_message_text(
@@ -823,6 +841,9 @@ def button_handler(update, context):
         return ENTERING_QUANTITY
     
     if data.startswith("doc_"):
+        if user_id not in user_sessions:
+            return cancel_order(user_id, query, context)
+        
         user_sessions[user_id]["type"] = "doc"
         user_sessions[user_id]["color"] = data.split("_")[1]
         total_photos = user_sessions[user_id]["total_photos"]
@@ -842,7 +863,7 @@ def button_handler(update, context):
         quantity = int(data.split("_")[1])
         session = user_sessions.get(user_id)
         if not session:
-            return cancel_order(user_id, query)
+            return cancel_order(user_id, query, context)
         
         session["quantity"] = quantity
         
@@ -911,7 +932,7 @@ def button_handler(update, context):
     if data == "confirm":
         session = user_sessions.get(user_id)
         if not session:
-            return cancel_order(user_id, query)
+            return cancel_order(user_id, query, context)
         
         success, order_id, folder = save_order_to_folder(
             user_id,
@@ -1479,6 +1500,7 @@ bot = telegram.Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
+# ВАЖНО: Добавляем обработчик cancel для состояния ENTERING_QUANTITY
 conv_handler = ConversationHandler(
     entry_points=[
         MessageHandler(Filters.document | Filters.photo, handle_file),
@@ -1491,13 +1513,16 @@ conv_handler = ConversationHandler(
         ],
         SELECTING_PHOTO_FORMAT: [
             CallbackQueryHandler(button_handler, pattern="^photo_.*"),
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # Добавлено
         ],
         SELECTING_DOC_TYPE: [
             CallbackQueryHandler(button_handler, pattern="^doc_.*"),
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # Добавлено
         ],
         ENTERING_QUANTITY: [
             MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
             CallbackQueryHandler(button_handler, pattern="^qty_.*"),
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # ВАЖНО: добавляем обработку cancel
         ],
         CONFIRMING_ORDER: [
             CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),

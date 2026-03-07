@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Telegram бот для печати - СИНХРОННАЯ ВЕРСИЯ
-Исправлена глобальная инициализация dispatcher
+Telegram бот для печати фото и документов
+Синхронная версия с полной функциональностью
+Работает на Render через веб-хуки
 """
 
 import os
@@ -17,7 +18,7 @@ import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify
 
-# Используем старую синхронную версию python-telegram-bot
+# Используем синхронную версию python-telegram-bot
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
@@ -53,7 +54,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========== СОСТОЯНИЯ ==========
+# ========== СОСТОЯНИЯ ДЛЯ РАЗГОВОРА ==========
 (
     WAITING_FOR_FILE,
     SELECTING_PHOTO_FORMAT,
@@ -104,7 +105,7 @@ def extract_number_from_text(text):
     return int(numbers[0]) if numbers else None
 
 def count_pages_in_file(file_path, file_name):
-    """Подсчет страниц в файле (синхронная версия)"""
+    """Подсчет страниц в файле"""
     try:
         if file_name.lower().endswith('.pdf'):
             with open(file_path, 'rb') as f:
@@ -112,6 +113,7 @@ def count_pages_in_file(file_path, file_name):
                 return len(pdf.pages)
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
+            # Примерный подсчет: 1 страница = ~30 параграфов
             return max(1, len(doc.paragraphs) // 30)
         return 1
     except Exception as e:
@@ -119,15 +121,21 @@ def count_pages_in_file(file_path, file_name):
         return 1
 
 def download_file(file, file_name, user_id):
-    """Скачивает файл во временную папку (синхронная версия)"""
+    """Скачивает файл во временную папку"""
     try:
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
         
-        # В синхронной версии file.get_file() работает по-другому
-        # Создаем временный файл
-        with open(file_path, 'wb') as f:
-            f.write(file.download_as_bytearray())
+        # Универсальный метод скачивания для разных типов файлов
+        if hasattr(file, 'download'):  # Для объектов Document
+            file.download(file_path)
+        elif hasattr(file, 'get_file'):  # Для PhotoSize
+            file_obj = file.get_file()
+            file_obj.download(file_path)
+        else:
+            # Запасной вариант
+            with open(file_path, 'wb') as f:
+                f.write(file.download_as_bytearray())
         
         return file_path, temp_dir
     except Exception as e:
@@ -148,6 +156,7 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             shutil.copy2(f['path'], new_path)
             saved_files.append(new_path)
         
+        # Сохраняем информацию о заказе
         info_file = os.path.join(order_folder, "информация_о_заказе.txt")
         with open(info_file, 'w', encoding='utf-8') as f:
             f.write(f"ЗАКАЗ ОТ {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
@@ -156,7 +165,7 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             f.write(f"ID: {user_id}\n\n")
             
             if order_data['type'] == 'photo':
-                format_names = {"small": "Малый", "medium": "Средний", "large": "Большой"}
+                format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
                 f.write(f"Тип: Фото\n")
                 f.write(f"Формат: {format_names[order_data['format']]}\n")
             else:
@@ -179,7 +188,7 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         logger.error(f"Ошибка сохранения: {e}")
         return False, None
 
-# ========== ОБРАБОТЧИКИ КОМАНД (синхронные) ==========
+# ========== ОБРАБОТЧИКИ КОМАНД ==========
 def start(update, context):
     """Команда /start"""
     user = update.effective_user
@@ -198,6 +207,7 @@ def start(update, context):
         "📸🖨️ Я помогу распечатать фото и документы.\n\n"
         "📎 Отправляй файлы (JPG, PNG, PDF, DOC, DOCX)\n"
         "📦 Можно отправлять несколько файлов за раз\n"
+        "📊 Я посчитаю страницы и рассчитаю стоимость\n\n"
         f"📞 Контакт: {CONTACT_PHONE}\n"
         f"🚚 Доставка: {DELIVERY_OPTIONS}"
     )
@@ -218,7 +228,8 @@ def handle_file(update, context):
             "user_info": {
                 "user_id": user_id,
                 "username": update.effective_user.username or update.effective_user.first_name,
-                "first_name": update.effective_user.first_name
+                "first_name": update.effective_user.first_name,
+                "last_name": update.effective_user.last_name or ""
             }
         }
     
@@ -269,7 +280,7 @@ def handle_file(update, context):
     photo_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'photo')
     doc_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'doc')
     
-    text = f"✅ Файл добавлен!\n\n📊 Статистика:\n"
+    text = f"✅ Файл добавлен!\n\n📊 **Статистика:**\n"
     if photo_count > 0:
         text += f"📸 Фото: {photo_count}\n"
     if doc_count > 0:
@@ -278,24 +289,24 @@ def handle_file(update, context):
     
     # Предлагаем выбор
     if doc_count > 0:
-        text += "Выберите тип печати:"
+        text += "Выберите тип печати для документов:"
         keyboard = [
             [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
             [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
-            [InlineKeyboardButton("➕ Добавить ещё", callback_data="add_more")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
+            [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+            [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
         ]
     else:
-        text += "Выберите формат печати:"
+        text += "Выберите формат печати для фото:"
         keyboard = [
-            [InlineKeyboardButton("🖼 Малый (A6)", callback_data="photo_small")],
-            [InlineKeyboardButton("🖼 Средний", callback_data="photo_medium")],
-            [InlineKeyboardButton("🖼 Большой (A4)", callback_data="photo_large")],
-            [InlineKeyboardButton("➕ Добавить ещё", callback_data="add_more")],
-            [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
+            [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
+            [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
+            [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
+            [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+            [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
         ]
     
-    update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return WAITING_FOR_FILE
 
 def button_handler(update, context):
@@ -331,7 +342,8 @@ def button_handler(update, context):
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = data.split("_")[1]
         query.edit_message_text(
-            "🔢 Сколько копий?",
+            "🔢 Сколько копий каждого фото напечатать?\n"
+            "Введите число или выберите из вариантов:",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -339,8 +351,12 @@ def button_handler(update, context):
     if data.startswith("doc_"):
         user_sessions[user_id]["type"] = "doc"
         user_sessions[user_id]["color"] = data.split("_")[1]
+        total_pages = user_sessions[user_id]["total_pages"]
         query.edit_message_text(
-            "🔢 Сколько копий?",
+            f"🔢 В файлах всего {total_pages} страниц.\n"
+            f"Сколько копий каждого документа напечатать?\n"
+            f"(Каждая копия = {total_pages} страниц)\n"
+            f"Введите число или выберите из вариантов:",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -359,31 +375,40 @@ def button_handler(update, context):
         
         for i, f in enumerate(files, 1):
             if file_type == "photo":
-                file_total = calculate_price(PHOTO_PRICES[session["format"]], quantity)
+                price_dict = PHOTO_PRICES[session["format"]]
+                file_total = calculate_price(price_dict, quantity)
                 total += file_total
                 total_pages += f['pages'] * quantity
-                details += f"📸 Файл {i}: {f['pages']} стр. × {quantity} = {file_total} руб.\n"
+                details += f"📸 Файл {i}: {f['name']}\n"
+                details += f"   • {f['pages']} стр. × {quantity} копий = {f['pages'] * quantity} стр.\n"
+                details += f"   • {file_total // quantity} руб./копия\n"
+                details += f"   • **{file_total} руб.**\n\n"
             else:
+                price_dict = DOC_PRICES[session["color"]]
                 file_pages = f['pages'] * quantity
-                file_total = calculate_price(DOC_PRICES[session["color"]], file_pages)
+                file_total = calculate_price(price_dict, file_pages)
                 total += file_total
                 total_pages += file_pages
-                details += f"📄 Файл {i}: {f['pages']} стр. × {quantity} = {file_pages} стр., {file_total} руб.\n"
+                details += f"📄 Файл {i}: {f['name']}\n"
+                details += f"   • {f['pages']} стр. × {quantity} копий = {file_pages} стр.\n"
+                details += f"   • {file_total // file_pages} руб./страница\n"
+                details += f"   • **{file_total} руб.**\n\n"
         
         session["total"] = total
         session["total_pages"] = total_pages
         session["delivery"] = estimate_delivery_time(total_pages)
         
-        text = f"{details}\n📋 **ИТОГО:**\n"
-        text += f"📦 Файлов: {len(files)}\n"
-        text += f"📊 Страниц: {total_pages}\n"
-        text += f"💰 Сумма: {total} руб.\n"
-        text += f"⏳ Срок: {session['delivery']}\n\n"
-        text += "Подтверждаете?"
+        text = f"{details}\n"
+        text += "📋 **ПРОВЕРЬТЕ ЗАКАЗ:**\n\n"
+        text += f"📦 Всего файлов: {len(files)}\n"
+        text += f"📊 Всего страниц к печати: {total_pages}\n"
+        text += f"💰 **ИТОГОВАЯ СУММА: {total} руб.**\n"
+        text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
+        text += "Всё верно?"
         
         keyboard = [
-            [InlineKeyboardButton("✅ Да", callback_data="confirm"),
-             InlineKeyboardButton("❌ Нет", callback_data="cancel")]
+            [InlineKeyboardButton("✅ Да, подтвердить заказ", callback_data="confirm"),
+             InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]
         ]
         
         query.message.delete()
@@ -409,24 +434,26 @@ def button_handler(update, context):
         
         if success:
             text = (
-                "✅ **ЗАКАЗ ОФОРМЛЕН!**\n\n"
-                f"👤 {session['user_info']['first_name']}\n"
+                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
+                f"👤 Заказчик: {session['user_info']['first_name']}\n"
                 f"📦 Файлов: {len(session['files'])}\n"
-                f"📊 Страниц: {session['total_pages']}\n"
-                f"💰 Сумма: {session['total']} руб.\n"
-                f"⏳ Срок: {session['delivery']}\n\n"
-                f"📞 Контакт: {CONTACT_PHONE}\n"
-                f"🚚 Доставка: {DELIVERY_OPTIONS}\n\n"
-                "Спасибо за заказ!"
+                f"📊 Всего страниц: {session['total_pages']}\n"
+                f"💰 Сумма к оплате: {session['total']} руб.\n"
+                f"⏳ Срок выполнения: {session['delivery']}\n\n"
+                f"📞 Контактный телефон: {CONTACT_PHONE}\n"
+                f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
+                "Свяжитесь с нами для уточнения деталей доставки!\n"
+                "Спасибо за заказ! 😊"
             )
         else:
             text = "❌ Ошибка при сохранении заказа"
         
+        # Очищаем временные файлы
         for d in session.get("temp_dirs", []):
             shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
         
-        keyboard = [[InlineKeyboardButton("🔄 Новый заказ", callback_data="new_order")]]
+        keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
         query.message.delete()
         context.bot.send_message(
             chat_id=user_id,
@@ -451,6 +478,10 @@ def get_quantity_keyboard():
          InlineKeyboardButton("30", callback_data="qty_30"), 
          InlineKeyboardButton("50", callback_data="qty_50"),
          InlineKeyboardButton("100", callback_data="qty_100")],
+        [InlineKeyboardButton("200", callback_data="qty_200"), 
+         InlineKeyboardButton("300", callback_data="qty_300"),
+         InlineKeyboardButton("400", callback_data="qty_400"), 
+         InlineKeyboardButton("500", callback_data="qty_500")],
         [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -458,22 +489,30 @@ def get_quantity_keyboard():
 def handle_quantity_input(update, context):
     """Ручной ввод количества"""
     user_id = update.effective_user.id
-    quantity = extract_number_from_text(update.message.text)
+    text = update.message.text
+    quantity = extract_number_from_text(text)
     
     if not quantity or quantity < 1 or quantity > 1000:
         update.message.reply_text(
-            "Введите число от 1 до 1000:",
+            "Пожалуйста, введите число от 1 до 1000\n"
+            "Или выберите из кнопок:",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
     
-    # Имитируем нажатие кнопки
+    # Создаем callback как при нажатии кнопки
     context.user_data['temp_quantity'] = quantity
+    query = type('Query', (), {
+        'data': f'qty_{quantity}',
+        'from_user': update.effective_user,
+        'message': update.message,
+        'answer': lambda: None
+    })
     return button_handler(update, context)
 
-# ========== ИНИЦИАЛИЗАЦИЯ В ГЛОБАЛЬНОЙ ОБЛАСТИ ==========
+# ========== ИНИЦИАЛИЗАЦИЯ ==========
 print("=" * 60)
-print("🚀 ИНИЦИАЛИЗАЦИЯ БОТА (ГЛОБАЛЬНАЯ)")
+print("🚀 ЗАПУСК БОТА (СИНХРОННАЯ ВЕРСИЯ)")
 print("=" * 60)
 
 # Создаем бота
@@ -546,7 +585,7 @@ def webhook():
             
         return "OK", 200
     except Exception as e:
-        logger.error(f"❌ Ошибка: {e}")
+        logger.error(f"❌ Ошибка в webhook: {e}")
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
@@ -559,10 +598,52 @@ def health():
         "timestamp": datetime.now().isoformat()
     })
 
+@app.route('/stats')
+def stats():
+    """Статистика заказов"""
+    try:
+        orders_count = len([d for d in os.listdir(ORDERS_FOLDER) if os.path.isdir(os.path.join(ORDERS_FOLDER, d))]) if os.path.exists(ORDERS_FOLDER) else 0
+        return jsonify({
+            "status": "ok",
+            "orders_count": orders_count,
+            "active_sessions": len(user_sessions),
+            "bot_ready": dispatcher is not None
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
 @app.route('/')
 def home():
     """Главная страница"""
-    return "✅ Бот работает! Используйте Telegram для заказов."
+    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    return f"""
+    <html>
+        <head>
+            <title>Print Bot</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+                .container {{ max-width: 800px; margin: 0 auto; background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px); }}
+                h1 {{ text-align: center; }}
+                .status {{ background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; }}
+                .info {{ margin: 10px 0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🤖 Print Bot</h1>
+                <div class="status">
+                    <h2>✅ Бот работает 24/7!</h2>
+                    <p class="info">📁 Папка заказов: <strong>{ORDERS_FOLDER}/</strong></p>
+                    <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
+                    <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
+                    <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>
+                </div>
+                <p>Бот активен и принимает заказы в Telegram!</p>
+                <p>👉 <a href="/stats" style="color: white;">Статистика</a> | <a href="/health" style="color: white;">Проверка здоровья</a></p>
+            </div>
+        </body>
+    </html>
+    """
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":

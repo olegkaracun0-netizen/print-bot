@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлены маршруты
+Исправлены f-строки
 """
 
 import os
@@ -1315,9 +1315,12 @@ def list_orders():
                 
                 .order-actions {
                     margin-top: 15px;
+                    display: flex;
+                    gap: 10px;
                 }
                 
                 .action-btn {
+                    flex: 1;
                     display: inline-block;
                     padding: 10px 20px;
                     background: #28a745;
@@ -1325,11 +1328,20 @@ def list_orders():
                     text-decoration: none;
                     border-radius: 10px;
                     transition: all 0.3s ease;
+                    text-align: center;
                 }
                 
                 .action-btn:hover {
                     background: #218838;
                     transform: translateY(-2px);
+                }
+                
+                .action-btn.view {
+                    background: #667eea;
+                }
+                
+                .action-btn.view:hover {
+                    background: #5a67d8;
                 }
             </style>
             <script>
@@ -1425,7 +1437,7 @@ def list_orders():
                             </div>
                             
                             <div class="order-actions">
-                                <a href="/orders/{{ order.id }}/" class="action-btn">👁️ Подробнее</a>
+                                <a href="/orders/{{ order.id }}/" class="action-btn view">👁️ Подробнее</a>
                                 <a href="/orders/{{ order.id }}/download" class="action-btn">⬇️ Скачать все</a>
                             </div>
                         </div>
@@ -1744,12 +1756,10 @@ def view_order(order_id):
                         <div class="stat">💾 Объем: {format_file_size(total_size)}</div>
                     </div>
                     
-                    {f'''
-                    <h3>📸 Фото ({len(photos)})</h3>
+                    {f'<h3>📸 Фото ({len(photos)})</h3>' if photos else ''}
                     <div class="photo-gallery">
                         {''.join([f'<div class="photo-item"><img src="{p["url"]}" class="photo-img" onclick="window.open(\'{p["url"]}\', \'_blank\')"><br>{p["name"]}</div>' for p in photos])}
                     </div>
-                    ''' if photos else ''}
                     
                     <h3>📄 Файлы</h3>
                     <div class="files-grid">

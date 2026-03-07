@@ -2,6 +2,16 @@
 # -*- coding: utf-8 -*-
 
 """
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║   ░█▀▀░█▀█░█▀▄░█▀▀░█░█░░░█▀▀░█▀█░█▄█░█▀█░█░░░█▀▀░▀█▀░█▀▀░█░█░█▀▄░█▀▀░█▀▄      ║
+║   ░█░░░█░█░█░█░█▀▀░▄▀▄░░░█░░░█░█░█░█░█▀▀░█░░░█▀▀░░█░░█▀▀░█▄█░█▀▄░█▀▀░█▀▄      ║
+║   ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀░░░▀▀▀░▀▀▀░▀░▀░▀░░░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀      ║
+║                                                                                  ║
+║                     ⚡ СУПЕР-ПРЕМИУМ БОТ ДЛЯ ПЕЧАТИ ⚡                           ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
 Telegram бот для печати фото и документов
 СУПЕР-ПРЕМИУМ ДИЗАЙН с анимациями и 3D-эффектами
 """
@@ -16,8 +26,9 @@ import shutil
 import traceback
 import zipfile
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string, abort
+import threading
 
 # Используем синхронную версию python-telegram-bot
 import telegram
@@ -172,6 +183,7 @@ group_timers = {}
 updater = None
 dispatcher = None
 bot = None
+app = Flask(__name__)  # Инициализируем Flask здесь
 
 # ========== ЦЕНЫ ==========
 PHOTO_PRICES = {
@@ -1091,7 +1103,6 @@ def handle_quantity_input(update, context):
     return button_handler(update, context)
 
 # ========== ВЕБ-ИНТЕРФЕЙС ==========
-app = Flask(__name__)
 
 # Супер-премиум CSS с анимациями и 3D-эффектами
 PREMIUM_CSS = """
@@ -1480,18 +1491,21 @@ def home():
         <title>🖨️ Print Bot Premium | Супер-дизайн</title>
         {PREMIUM_CSS}
         <style>
-            /* Дополнительные стили для проверки */
             .test-class {{
                 color: red;
-                font-size: 20px;
+                font-size: 24px;
                 text-align: center;
-                padding: 10px;
+                padding: 20px;
                 background: yellow;
+                border: 3px solid red;
+                margin: 20px;
+                border-radius: 10px;
+                font-weight: bold;
             }}
         </style>
     </head>
     <body>
-        <div class="test-class">✅ CSS РАБОТАЕТ! Если вы видите этот желтый блок с красным текстом, то CSS подключен правильно.</div>
+        <div class="test-class">✅ СSS РАБОТАЕТ! Если вы видите этот желтый блок с красным текстом, то CSS подключен правильно. Текущее время: {datetime.now().strftime('%H:%M:%S')}</div>
         
         <div class="container">
             <div class="premium-card" style="text-align: center; margin-bottom: 40px;">
@@ -2182,13 +2196,17 @@ def run_bot():
     global updater, dispatcher, bot
     
     try:
+        # Создаем бота
         bot = telegram.Bot(token=TOKEN)
         
+        # Создаем updater
         updater = Updater(token=TOKEN, use_context=True)
         dispatcher = updater.dispatcher
         
+        # Добавляем обработчик ошибок
         dispatcher.add_error_handler(error_handler)
         
+        # Добавляем обработчики
         dispatcher.add_handler(CommandHandler("start", start))
         
         file_handler = MessageHandler(
@@ -2205,15 +2223,18 @@ def run_bot():
         
         dispatcher.add_handler(CallbackQueryHandler(button_handler))
         
+        # Устанавливаем вебхук
         webhook_url = f"{RENDER_URL}/webhook"
         bot.set_webhook(url=webhook_url)
         logger.info(f"✅ Webhook установлен: {webhook_url}")
         
+        # Информация о боте
         bot_info = bot.get_me()
         logger.info(f"✅ Бот запущен: @{bot_info.username}")
         logger.info(f"✅ Папка заказов: {ORDERS_PATH}")
         logger.info(f"✅ ID администратора: {ADMIN_CHAT_ID}")
         
+        # Запускаем Flask (НЕ запускаем второй раз!)
         app.run(host="0.0.0.0", port=PORT)
         
     except Exception as e:
@@ -2222,8 +2243,10 @@ def run_bot():
         sys.exit(1)
 
 if __name__ == "__main__":
+    # Создаем папку для заказов если её нет
     if not os.path.exists(ORDERS_PATH):
         os.makedirs(ORDERS_PATH, exist_ok=True)
         logger.info(f"📁 Создана папка заказов: {ORDERS_PATH}")
     
+    # Запускаем бота
     run_bot()

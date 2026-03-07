@@ -1,6 +1,15 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# ========== ПРИНУДИТЕЛЬНЫЙ ВЫВОД В НАЧАЛЕ ==========
+import sys
+print("🔥🔥🔥 ФАЙЛ bot.py НАЧАЛ ВЫПОЛНЕНИЕ 🔥🔥🔥", file=sys.stderr)
+print("🔥🔥🔥 ТЕКУЩАЯ ДИРЕКТОРИЯ:", __file__, file=sys.stderr)
+sys.stderr.flush()
+# ==================================================
+
 import logging
 import os
-import sys
 import asyncio
 import traceback
 from datetime import datetime
@@ -8,10 +17,20 @@ from flask import Flask, request, jsonify
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+# ========== ПРИНУДИТЕЛЬНЫЙ ВЫВОД ==========
+print("📢 ИМПОРТЫ ЗАВЕРШЕНЫ", file=sys.stderr)
+sys.stderr.flush()
+# =========================================
+
 # ========== НАСТРОЙКИ ==========
 TOKEN = os.environ.get("TOKEN", "8238978593:AAG-rgNUQXF8_MAkLjBgeON2FGUfHhm7YO0")
 PORT = int(os.environ.get("PORT", 10000))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
+
+print(f"📢 ТОКЕН ПОЛУЧЕН: {TOKEN[:10]}...", file=sys.stderr)
+print(f"📢 PORT: {PORT}", file=sys.stderr)
+print(f"📢 RENDER_URL: {RENDER_EXTERNAL_URL}", file=sys.stderr)
+sys.stderr.flush()
 
 # ========== ЛОГИРОВАНИЕ ==========
 logging.basicConfig(
@@ -21,9 +40,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+print("📢 ЛОГИРОВАНИЕ НАСТРОЕНО", file=sys.stderr)
+sys.stderr.flush()
+
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 application = None
 bot_initialized = False
+
+print("📢 ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ СОЗДАНЫ", file=sys.stderr)
+sys.stderr.flush()
 
 # ========== ОБРАБОТЧИКИ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,6 +85,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def init_bot():
     """Инициализирует бота"""
     global application, bot_initialized
+    
+    print("🔥🔥🔥 ВХОД В ФУНКЦИЮ init_bot 🔥🔥🔥", file=sys.stderr)
+    sys.stderr.flush()
     
     try:
         logger.info("=" * 60)
@@ -144,6 +172,9 @@ def init_bot():
         logger.info("=" * 60)
         logger.info("✅ БОТ УСПЕШНО ИНИЦИАЛИЗИРОВАН И ГОТОВ К РАБОТЕ!")
         logger.info("=" * 60)
+        
+        print("🔥🔥🔥 ФУНКЦИЯ init_bot УСПЕШНО ЗАВЕРШЕНА 🔥🔥🔥", file=sys.stderr)
+        sys.stderr.flush()
         return True
         
     except Exception as e:
@@ -154,12 +185,18 @@ def init_bot():
         logger.error(traceback.format_exc())
         logger.error("=" * 60)
         
-        # ВАЖНО: Вместо того чтобы просто вернуть False, мы поднимаем исключение
-        # Это заставит сервис остановиться и показать ошибку в логах Render
+        print(f"🔥🔥🔥 ОШИБКА В init_bot: {e} 🔥🔥🔥", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+        sys.stderr.flush()
+        
+        # ВАЖНО: Поднимаем исключение, чтобы остановить запуск
         raise e
 
 # ========== FLASK ==========
 app = Flask(__name__)
+
+print("📢 FLASK ПРИЛОЖЕНИЕ СОЗДАНО", file=sys.stderr)
+sys.stderr.flush()
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -264,24 +301,35 @@ def home():
     """
 
 # ========== ЗАПУСК ==========
+print("🔥🔥🔥 ДОХОДИМ ДО if __name__ == '__main__' 🔥🔥🔥", file=sys.stderr)
+sys.stderr.flush()
+
 if __name__ == "__main__":
-    print("\n" + "="*60)
-    print("🚀 ЗАПУСК БОТА")
-    print("="*60)
+    print("🔥🔥🔥 ВХОД В if __name__ == '__main__' 🔥🔥🔥", file=sys.stderr)
+    print("="*60, file=sys.stderr)
+    print("🚀 ЗАПУСК БОТА", file=sys.stderr)
+    print("="*60, file=sys.stderr)
+    sys.stderr.flush()
     
     try:
         # Инициализируем бота
+        print("🔥🔥🔥 ВЫЗЫВАЕМ init_bot() 🔥🔥🔥", file=sys.stderr)
+        sys.stderr.flush()
+        
         init_bot()
         
-        print("\n" + "="*60)
-        print(f"🌐 ЗАПУСК FLASK НА ПОРТУ {PORT}")
-        print("="*60 + "\n")
+        print("🔥🔥🔥 init_bot() ВЫПОЛНЕНА УСПЕШНО 🔥🔥🔥", file=sys.stderr)
+        print(f"🌐 ЗАПУСК FLASK НА ПОРТУ {PORT}", file=sys.stderr)
+        sys.stderr.flush()
+        
         app.run(host='0.0.0.0', port=PORT, debug=False)
         
     except Exception as e:
-        print("\n" + "="*60)
-        print("❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ")
-        print("="*60)
-        print(f"Ошибка: {e}")
-        print("\nПроверьте логи выше для получения детальной информации.")
+        print("="*60, file=sys.stderr)
+        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ: {e}", file=sys.stderr)
+        print("="*60, file=sys.stderr)
+        print("📋 ПОЛНЫЙ TRACEBACK:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        print("="*60, file=sys.stderr)
+        sys.stderr.flush()
         sys.exit(1)

@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлена ошибка с download_file()
+С уведомлениями админу и исправленными ссылками
 """
 
 import os
@@ -32,6 +32,9 @@ TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
     print("❌ ОШИБКА: TOKEN не задан в переменных окружения!")
     sys.exit(1)
+
+# ID администратора для уведомлений (ваш Telegram ID)
+ADMIN_CHAT_ID = 483613049  # Ваш ID из логов
 
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 if not RENDER_URL:
@@ -146,7 +149,7 @@ def count_pages_in_file(file_path, file_name):
         return 1
 
 def download_file(file_obj, file_name):
-    """Скачивает файл во временную папку - ИСПРАВЛЕНО: 2 аргумента"""
+    """Скачивает файл во временную папку"""
     try:
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
@@ -228,6 +231,57 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         logger.error(f"❌ Ошибка сохранения: {e}")
         logger.error(traceback.format_exc())
         return False, None
+
+def send_admin_notification(order_data, order_folder):
+    """Отправляет уведомление админу о новом заказе"""
+    try:
+        order_name = os.path.basename(order_folder)
+        # ВАЖНО: добавляем слеш в конце URL
+        order_url = f"{RENDER_URL}/orders/{order_name}/"
+        
+        # Формируем сообщение для админа
+        admin_message = (
+            f"🆕 **НОВЫЙ ЗАКАЗ!**\n\n"
+            f"👤 Клиент: {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
+            f"🆔 ID: {order_data['user_info']['user_id']}\n\n"
+            f"📦 **Детали заказа:**\n"
+            f"• Тип: {'Фото' if order_data['type'] == 'photo' else 'Документы'}\n"
+        )
+        
+        if order_data['type'] == 'photo':
+            format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
+            admin_message += f"• Формат: {format_names[order_data['format']]}\n"
+        else:
+            color_names = {"bw": "Черно-белая", "color": "Цветная"}
+            admin_message += f"• Печать: {color_names[order_data['color']]}\n"
+        
+        admin_message += (
+            f"• Копий: {order_data['quantity']}\n"
+            f"• Страниц в оригинале: {order_data['total_pages']}\n"
+            f"• Страниц к печати: {order_data['total_pages'] * order_data['quantity']}\n"
+            f"💰 **Сумма: {order_data['total']} руб.**\n"
+            f"⏳ Срок: {order_data['delivery']}\n\n"
+            f"🔗 **Ссылка на заказ:**\n{order_url}\n\n"
+            f"📁 Папка на сервере:\n`{order_folder}`"
+        )
+        
+        # Отправляем админу
+        if bot:
+            bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=admin_message,
+                parse_mode="Markdown"
+            )
+            logger.info(f"✅ Уведомление отправлено админу {ADMIN_CHAT_ID}")
+            
+            # Отправляем также ссылку отдельно для удобства
+            bot.send_message(
+                chat_id=ADMIN_CHAT_ID,
+                text=f"🔗 Ссылка для скачивания:\n{order_url}",
+                parse_mode="Markdown"
+            )
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
 
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
 def start(update, context):
@@ -354,7 +408,7 @@ def process_media_group(user_id, media_group_id, context):
             else:
                 continue
             
-            # Скачиваем файл - ИСПРАВЛЕНО: передаем 2 аргумента
+            # Скачиваем файл
             file_path, temp_dir = download_file(file_obj, file_name)
             if not file_path:
                 continue
@@ -461,7 +515,7 @@ def process_single_file(update, context):
     else:
         return WAITING_FOR_FILE
     
-    # Скачиваем файл - ИСПРАВЛЕНО: передаем 2 аргумента
+    # Скачиваем файл
     file_path, temp_dir = download_file(file_obj, file_name)
     if not file_path:
         message.reply_text("❌ Ошибка загрузки")
@@ -644,6 +698,9 @@ def button_handler(update, context):
         
         if success:
             order_name = os.path.basename(folder)
+            # ВАЖНО: добавляем слеш в конце URL
+            order_url = f"{RENDER_URL}/orders/{order_name}/"
+            
             text = (
                 "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
                 f"👤 Заказчик: {session['user_info']['first_name']}\n"
@@ -654,9 +711,13 @@ def button_handler(update, context):
                 f"⏳ Срок выполнения: {session['delivery']}\n\n"
                 f"📞 Контактный телефон: {CONTACT_PHONE}\n"
                 f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                f"🔗 Ссылка для скачивания:\n{RENDER_URL}/orders/{order_name}\n\n"
+                f"🔗 **Ссылка на заказ:**\n{order_url}\n\n"
                 "Спасибо за заказ! 😊"
             )
+            
+            # Отправляем уведомление админу
+            send_admin_notification(session, folder)
+            
         else:
             text = "❌ Ошибка при сохранении заказа"
         
@@ -1006,6 +1067,7 @@ print("🚀 ЗАПУСК БОТА")
 print("=" * 60)
 print(f"📁 Папка для заказов: {ORDERS_PATH}")
 print(f"📁 URL для просмотра заказов: {RENDER_URL}/orders/")
+print(f"👤 ID администратора: {ADMIN_CHAT_ID}")
 
 # Создаем бота
 bot = telegram.Bot(token=TOKEN)

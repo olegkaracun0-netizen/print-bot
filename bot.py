@@ -69,6 +69,11 @@ def init_bot():
         logger.info(f"📌 Токен: {TOKEN[:10]}...{TOKEN[-5:]}")
         logger.info(f"📌 Render URL: {RENDER_EXTERNAL_URL}")
         
+        # Проверяем, что токен не пустой
+        if not TOKEN or TOKEN == "8238978593:AAG-rgNUQXF8_MAkLjBgeON2FGUfHhm7YO0":
+            logger.error("❌ Токен не задан или используется токен по умолчанию!")
+            raise ValueError("TOKEN не задан в переменных окружения")
+        
         # Создаём приложение
         logger.info("1️⃣ Создание Application...")
         application = Application.builder().token(TOKEN).build()
@@ -99,8 +104,13 @@ def init_bot():
         loop.run_until_complete(application.start())
         logger.info("   ✅ Application запущен")
         
+        # Проверяем соединение с Telegram
+        logger.info("6️⃣ Проверка соединения с Telegram...")
+        bot_info = loop.run_until_complete(application.bot.get_me())
+        logger.info(f"   ✅ Бот @{bot_info.username} успешно подключился")
+        
         # Устанавливаем веб-хук
-        logger.info("6️⃣ Настройка веб-хука...")
+        logger.info("7️⃣ Настройка веб-хука...")
         if RENDER_EXTERNAL_URL:
             webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
             logger.info(f"   🔧 URL веб-хука: {webhook_url}")
@@ -125,8 +135,10 @@ def init_bot():
                 logger.info(f"   📊 Информация о веб-хуке: {webhook_info.url}")
             else:
                 logger.error("   ❌ Не удалось установить веб-хук")
+                raise Exception("Не удалось установить веб-хук")
         else:
             logger.warning("⚠️ RENDER_EXTERNAL_URL не задан, веб-хук не установлен")
+            raise Exception("RENDER_EXTERNAL_URL не задан")
         
         bot_initialized = True
         logger.info("=" * 60)
@@ -138,9 +150,13 @@ def init_bot():
         logger.error("=" * 60)
         logger.error(f"❌ ОШИБКА ИНИЦИАЛИЗАЦИИ: {e}")
         logger.error("=" * 60)
+        logger.error("📋 ПОЛНЫЙ TRACEBACK:")
         logger.error(traceback.format_exc())
-        bot_initialized = False
-        return False
+        logger.error("=" * 60)
+        
+        # ВАЖНО: Вместо того чтобы просто вернуть False, мы поднимаем исключение
+        # Это заставит сервис остановиться и показать ошибку в логах Render
+        raise e
 
 # ========== FLASK ==========
 app = Flask(__name__)
@@ -154,7 +170,11 @@ def webhook():
         # Проверяем инициализацию
         if not bot_initialized or application is None:
             logger.error("❌ Бот не инициализирован в момент запроса")
-            return jsonify({"error": "Bot not initialized", "bot_ready": bot_initialized}), 500
+            return jsonify({
+                "error": "Bot not initialized", 
+                "bot_ready": bot_initialized,
+                "message": "Проверьте логи инициализации"
+            }), 500
         
         # Получаем обновление
         update_data = request.get_json()
@@ -209,7 +229,8 @@ def debug():
         "webhook_url": f"{RENDER_EXTERNAL_URL}/webhook" if RENDER_EXTERNAL_URL else None,
         "bot_username": bot_info,
         "python_version": sys.version,
-        "token_first_chars": TOKEN[:10] if TOKEN else None
+        "token_first_chars": TOKEN[:10] if TOKEN else None,
+        "render_url": RENDER_EXTERNAL_URL
     })
 
 @app.route('/')
@@ -248,14 +269,19 @@ if __name__ == "__main__":
     print("🚀 ЗАПУСК БОТА")
     print("="*60)
     
-    # Инициализируем бота
-    if init_bot():
+    try:
+        # Инициализируем бота
+        init_bot()
+        
         print("\n" + "="*60)
         print(f"🌐 ЗАПУСК FLASK НА ПОРТУ {PORT}")
         print("="*60 + "\n")
         app.run(host='0.0.0.0', port=PORT, debug=False)
-    else:
+        
+    except Exception as e:
         print("\n" + "="*60)
-        print("❌ НЕ УДАЛОСЬ ИНИЦИАЛИЗИРОВАТЬ БОТА")
+        print("❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ")
         print("="*60)
+        print(f"Ошибка: {e}")
+        print("\nПроверьте логи выше для получения детальной информации.")
         sys.exit(1)

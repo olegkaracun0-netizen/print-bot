@@ -1,11 +1,10 @@
 import logging
 import os
 import sys
-import json
 import asyncio
 from datetime import datetime
 from flask import Flask, request, jsonify
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ========== НАСТРОЙКИ ==========
@@ -22,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
-bot_application = None
+bot_app = None
 loop = None
 
 # ========== КОМАНДА START ==========
@@ -45,42 +44,52 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 def init_bot():
-    """Инициализирует бота (без запуска polling!)"""
-    global bot_application, loop
+    """Инициализирует бота"""
+    global bot_app, loop
     
-    logger.info("🚀 Инициализация бота...")
-    
-    # Создаём новый event loop для этого потока
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Создаём приложение
-    bot_application = Application.builder().token(TOKEN).build()
-    bot_application.add_handler(CommandHandler("start", start))
-    
-    # Инициализируем (но НЕ ЗАПУСКАЕМ polling!)
-    loop.run_until_complete(bot_application.initialize())
-    loop.run_until_complete(bot_application.start())
-    
-    # Устанавливаем веб-хук
-    if RENDER_EXTERNAL_URL:
-        webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
-        logger.info(f"🔧 Установка веб-хука на {webhook_url}")
+    try:
+        logger.info("🚀 Инициализация бота...")
         
-        # Удаляем старый
-        loop.run_until_complete(bot_application.bot.delete_webhook(drop_pending_updates=True))
+        # Создаём новый event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        # Устанавливаем новый
-        loop.run_until_complete(bot_application.bot.set_webhook(
-            url=webhook_url,
-            allowed_updates=Update.ALL_TYPES
-        ))
+        # Создаём приложение
+        bot_app = Application.builder().token(TOKEN).build()
+        bot_app.add_handler(CommandHandler("start", start))
         
-        webhook_info = loop.run_until_complete(bot_application.bot.get_webhook_info())
-        logger.info(f"✅ Веб-хук установлен: {webhook_info.url}")
-    
-    logger.info("✅ Бот готов к работе (режим веб-хука)!")
-    return True
+        # Инициализируем
+        loop.run_until_complete(bot_app.initialize())
+        loop.run_until_complete(bot_app.start())
+        
+        logger.info("✅ Бот инициализирован")
+        
+        # Устанавливаем веб-хук
+        if RENDER_EXTERNAL_URL:
+            webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
+            logger.info(f"🔧 Установка веб-хука на {webhook_url}")
+            
+            # Удаляем старый
+            loop.run_until_complete(bot_app.bot.delete_webhook(drop_pending_updates=True))
+            
+            # Устанавливаем новый
+            result = loop.run_until_complete(bot_app.bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=Update.ALL_TYPES
+            ))
+            
+            if result:
+                logger.info(f"✅ Веб-хук установлен: {webhook_url}")
+            else:
+                logger.error("❌ Не удалось установить веб-хук")
+        
+        logger.info("✅ Бот готов к работе!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации: {e}")
+        logger.error(traceback.format_exc())
+        return False
 
 # ========== FLASK ==========
 flask_app = Flask(__name__)
@@ -88,9 +97,14 @@ flask_app = Flask(__name__)
 @flask_app.route('/webhook', methods=['POST'])
 def webhook():
     """Обработка обновлений от Telegram"""
-    global bot_application, loop
+    global bot_app, loop
     
     try:
+        # Проверяем, инициализирован ли бот
+        if bot_app is None:
+            logger.error("❌ Бот не инициализирован")
+            return jsonify({"error": "Bot not initialized"}), 500
+        
         # Получаем обновление
         update_data = request.get_json()
         if not update_data:
@@ -99,22 +113,22 @@ def webhook():
         logger.info(f"📩 Получено обновление: {update_data.get('update_id')}")
         
         # Создаём объект Update
-        update = Update.de_json(update_data, bot_application.bot)
+        update = Update.de_json(update_data, bot_app.bot)
         
-        # ВАЖНО: Запускаем обработку в существующем event loop
-        if loop and bot_application:
-            # Создаём задачу в event loop'е бота
+        # Запускаем обработку в event loop
+        if loop and bot_app:
             asyncio.run_coroutine_threadsafe(
-                bot_application.process_update(update),
+                bot_app.process_update(update),
                 loop
             )
             return "OK", 200
         else:
-            logger.error("❌ Бот не инициализирован")
-            return jsonify({"error": "Bot not initialized"}), 500
+            logger.error("❌ Event loop не доступен")
+            return jsonify({"error": "Event loop not available"}), 500
             
     except Exception as e:
         logger.error(f"❌ Ошибка в webhook: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @flask_app.route('/health')
@@ -122,31 +136,54 @@ def health():
     """Проверка здоровья для Render"""
     return jsonify({
         "status": "ok",
-        "bot_ready": bot_application is not None,
+        "bot_ready": bot_app is not None,
         "timestamp": datetime.now().isoformat()
     })
 
 @flask_app.route('/')
 def home():
     """Главная страница"""
-    return "✅ Бот работает! Используйте Telegram для заказов."
+    status = "✅ Бот работает!" if bot_app else "⏳ Бот инициализируется..."
+    return f"""
+    <html>
+        <head>
+            <title>Print Bot</title>
+            <style>
+                body {{ font-family: Arial; text-align: center; margin-top: 50px; }}
+                .status {{ padding: 20px; margin: 20px; }}
+                .ok {{ color: green; }}
+            </style>
+        </head>
+        <body>
+            <h1>🤖 Print Bot</h1>
+            <div class="status">
+                <h2 class="ok">{status}</h2>
+            </div>
+            <p>Используйте Telegram для заказов.</p>
+            <p>
+                <a href="/health">Проверка здоровья</a>
+            </p>
+        </body>
+    </html>
+    """
+
+@flask_app.route('/debug')
+def debug():
+    """Отладочная информация"""
+    return jsonify({
+        "bot_initialized": bot_app is not None,
+        "loop_exists": loop is not None,
+        "render_url": RENDER_EXTERNAL_URL,
+        "port": PORT
+    })
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
-    # Инициализируем бота перед запуском Flask
-    init_bot()
-    
-    # Запускаем Flask (в том же потоке)
-    logger.info(f"🌐 Запуск Flask на порту {PORT}")
-    flask_app.run(host='0.0.0.0', port=PORT)
-
-
-
-
-
-
-
-
-
-
-
+    # Инициализируем бота
+    if init_bot():
+        # Запускаем Flask
+        logger.info(f"🌐 Запуск Flask на порту {PORT}")
+        flask_app.run(host='0.0.0.0', port=PORT, debug=False)
+    else:
+        logger.error("❌ Не удалось инициализировать бота")
+        sys.exit(1)

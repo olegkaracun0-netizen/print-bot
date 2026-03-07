@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-С уведомлениями админу и исправленными ссылками
+Исправлены все ошибки
 """
 
 import os
@@ -140,7 +140,7 @@ def count_pages_in_file(file_path, file_name):
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
             # Для фото всегда 1 страница
-            logger.info(f"📸 Фото: {file_name} - 1 стр.")
+            logger.info(f"📸 Фото: {file_name} - 1 фото")
             return 1
             
         return 1
@@ -213,15 +213,17 @@ def save_order_to_folder(user_id, username, order_data, files_info):
                 f.write(f"Печать: {color_names[order_data['color']]}\n")
             
             f.write(f"Количество копий: {order_data['quantity']}\n")
-            f.write(f"Всего страниц в оригинале: {order_data['total_pages']}\n")
-            f.write(f"Всего страниц к печати: {order_data['total_pages'] * order_data['quantity']}\n")
+            f.write(f"Всего фото/страниц в оригинале: {order_data['total_pages']}\n")
+            f.write(f"Всего фото/страниц к печати: {order_data['total_pages'] * order_data['quantity']}\n")
             f.write(f"Сумма к оплате: {order_data['total']} руб.\n")
             f.write(f"Срок выполнения: {order_data['delivery']}\n\n")
             
             f.write("ФАЙЛЫ:\n")
             for i, file_info in enumerate(files_info, 1):
                 icon = "📸" if file_info['type'] == 'photo' else "📄"
-                f.write(f"{icon} {i}. {file_info['name']} - {file_info['pages']} стр.\n")
+                f.write(f"{icon} {i}. {file_info['name']}\n")
+                f.write(f"   • Тип: {'Фото' if file_info['type'] == 'photo' else 'Документ'}\n")
+                f.write(f"   • Количество: 1 файл\n")
             
             f.write(f"\nВсего файлов: {len(files_info)}")
         
@@ -239,12 +241,12 @@ def send_admin_notification(order_data, order_folder):
         # ВАЖНО: добавляем слеш в конце URL
         order_url = f"{RENDER_URL}/orders/{order_name}/"
         
-        # Формируем сообщение для админа
+        # Формируем сообщение для админа (без Markdown разметки)
         admin_message = (
-            f"🆕 **НОВЫЙ ЗАКАЗ!**\n\n"
+            f"🆕 НОВЫЙ ЗАКАЗ!\n\n"
             f"👤 Клиент: {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
             f"🆔 ID: {order_data['user_info']['user_id']}\n\n"
-            f"📦 **Детали заказа:**\n"
+            f"📦 Детали заказа:\n"
             f"• Тип: {'Фото' if order_data['type'] == 'photo' else 'Документы'}\n"
         )
         
@@ -257,28 +259,26 @@ def send_admin_notification(order_data, order_folder):
         
         admin_message += (
             f"• Копий: {order_data['quantity']}\n"
-            f"• Страниц в оригинале: {order_data['total_pages']}\n"
-            f"• Страниц к печати: {order_data['total_pages'] * order_data['quantity']}\n"
-            f"💰 **Сумма: {order_data['total']} руб.**\n"
+            f"• Файлов: {len(order_data['files'])}\n"
+            f"• Всего фото/страниц в оригинале: {order_data['total_pages']}\n"
+            f"💰 Сумма: {order_data['total']} руб.\n"
             f"⏳ Срок: {order_data['delivery']}\n\n"
-            f"🔗 **Ссылка на заказ:**\n{order_url}\n\n"
-            f"📁 Папка на сервере:\n`{order_folder}`"
+            f"🔗 Ссылка на заказ:\n{order_url}\n\n"
+            f"📁 Папка на сервере:\n{order_folder}"
         )
         
         # Отправляем админу
         if bot:
             bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=admin_message,
-                parse_mode="Markdown"
+                text=admin_message
             )
             logger.info(f"✅ Уведомление отправлено админу {ADMIN_CHAT_ID}")
             
             # Отправляем также ссылку отдельно для удобства
             bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=f"🔗 Ссылка для скачивания:\n{order_url}",
-                parse_mode="Markdown"
+                text=f"🔗 Ссылка для скачивания:\n{order_url}"
             )
     except Exception as e:
         logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
@@ -436,7 +436,7 @@ def process_media_group(user_id, media_group_id, context):
         files_count = len(user_sessions[user_id]["files"])
         total_pages = user_sessions[user_id]["total_pages"]
         
-        text = f"✅ Загружено **{files_count}** файлов!\n\n📊 **Статистика:**\n"
+        text = f"✅ Загружено {files_count} файлов!\n\n📊 Статистика:\n"
         if photo_count > 0:
             text += f"📸 Фото: {photo_count}\n"
         if doc_count > 0:
@@ -465,8 +465,7 @@ def process_media_group(user_id, media_group_id, context):
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
     except Exception as e:
@@ -539,7 +538,7 @@ def process_single_file(update, context):
     photo_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'photo')
     doc_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'doc')
     
-    text = f"✅ Файл добавлен!\n\n📊 **Статистика:**\n"
+    text = f"✅ Файл добавлен!\n\n📊 Статистика:\n"
     if photo_count > 0:
         text += f"📸 Фото: {photo_count}\n"
     if doc_count > 0:
@@ -565,7 +564,7 @@ def process_single_file(update, context):
             [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
         ]
     
-    message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return WAITING_FOR_FILE
 
 def button_handler(update, context):
@@ -634,7 +633,7 @@ def button_handler(update, context):
         
         total = 0
         total_pages = 0
-        details = "📊 **ДЕТАЛЬНЫЙ РАСЧЁТ:**\n\n"
+        details = "📊 ДЕТАЛЬНЫЙ РАСЧЁТ:\n\n"
         
         for i, f in enumerate(files, 1):
             if file_type == "photo":
@@ -643,9 +642,9 @@ def button_handler(update, context):
                 total += file_total
                 total_pages += f['pages'] * quantity
                 details += f"📸 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['pages']} стр. × {quantity} коп. = {f['pages'] * quantity} стр.\n"
+                details += f"   • {f['pages']} фото × {quantity} копий = {f['pages'] * quantity} фото\n"
                 details += f"   • {file_total // quantity} руб./копия\n"
-                details += f"   • **{file_total} руб.**\n\n"
+                details += f"   • Итого: {file_total} руб.\n\n"
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_pages = f['pages'] * quantity
@@ -655,17 +654,17 @@ def button_handler(update, context):
                 details += f"📄 Файл {i}: {f['name'][:30]}...\n"
                 details += f"   • {f['pages']} стр. × {quantity} коп. = {file_pages} стр.\n"
                 details += f"   • {file_total // file_pages} руб./стр.\n"
-                details += f"   • **{file_total} руб.**\n\n"
+                details += f"   • Итого: {file_total} руб.\n\n"
         
         session["total"] = total
         session["total_pages"] = total_pages
         session["delivery"] = estimate_delivery_time(total_pages)
         
         text = f"{details}\n"
-        text += "📋 **ПРОВЕРЬТЕ ЗАКАЗ:**\n\n"
+        text += "📋 ПРОВЕРЬТЕ ЗАКАЗ:\n\n"
         text += f"📦 Всего файлов: {len(files)}\n"
-        text += f"📊 Всего страниц к печати: {total_pages}\n"
-        text += f"💰 **ИТОГОВАЯ СУММА: {total} руб.**\n"
+        text += f"📊 Всего фото/страниц к печати: {total_pages}\n"
+        text += f"💰 ИТОГОВАЯ СУММА: {total} руб.\n"
         text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
         text += "Всё верно?"
         
@@ -678,8 +677,7 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return CONFIRMING_ORDER
     
@@ -698,20 +696,19 @@ def button_handler(update, context):
         
         if success:
             order_name = os.path.basename(folder)
-            # ВАЖНО: добавляем слеш в конце URL
             order_url = f"{RENDER_URL}/orders/{order_name}/"
             
             text = (
-                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
+                "✅ ЗАКАЗ УСПЕШНО ОФОРМЛЕН!\n\n"
                 f"👤 Заказчик: {session['user_info']['first_name']}\n"
                 f"📦 Файлов: {len(session['files'])}\n"
-                f"📊 Всего страниц в оригинале: {session['total_pages']}\n"
-                f"📊 Всего страниц к печати: {session['total_pages'] * session['quantity']}\n"
+                f"📊 Всего фото/страниц в оригинале: {session['total_pages']}\n"
+                f"📊 Всего фото/страниц к печати: {session['total_pages'] * session['quantity']}\n"
                 f"💰 Сумма к оплате: {session['total']} руб.\n"
                 f"⏳ Срок выполнения: {session['delivery']}\n\n"
                 f"📞 Контактный телефон: {CONTACT_PHONE}\n"
                 f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                f"🔗 **Ссылка на заказ:**\n{order_url}\n\n"
+                f"🔗 Ссылка на заказ:\n{order_url}\n\n"
                 "Спасибо за заказ! 😊"
             )
             
@@ -731,8 +728,7 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return WAITING_FOR_FILE
     

@@ -1,11 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-"""
-Telegram бот для печати фото и документов
-Стабильная версия с веб-хуками на Render
-"""
-
 import logging
 import os
 import sys
@@ -34,7 +29,6 @@ ORDERS_FOLDER = "заказы"
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
-# Создаём папку для заказов
 os.makedirs(ORDERS_FOLDER, exist_ok=True)
 
 # ========== ЛОГИРОВАНИЕ ==========
@@ -45,7 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ========== СОСТОЯНИЯ ДЛЯ РАЗГОВОРА ==========
+# ========== СОСТОЯНИЯ ==========
 (
     WAITING_FOR_FILE,
     SELECTING_PHOTO_FORMAT,
@@ -56,7 +50,8 @@ logger = logging.getLogger(__name__)
 
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 user_sessions = {}
-application = None  # Будет инициализирован в main
+application = None
+_bot_initialized = False
 
 # ========== ЦЕНЫ ==========
 PHOTO_PRICES = {
@@ -71,7 +66,6 @@ DOC_PRICES = {
 }
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
-
 def calculate_price(price_dict, quantity):
     for (min_q, max_q), price in price_dict.items():
         if min_q <= quantity <= max_q:
@@ -122,11 +116,9 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         order_folder = os.path.join(ORDERS_FOLDER, f"{clean_name}_{timestamp}")
         os.makedirs(order_folder, exist_ok=True)
         
-        saved_files = []
         for i, f in enumerate(files_info, 1):
             new_path = os.path.join(order_folder, f"{i}_{f['name']}")
             shutil.copy2(f['path'], new_path)
-            saved_files.append(new_path)
         
         info_file = os.path.join(order_folder, "информация_о_заказе.txt")
         with open(info_file, 'w', encoding='utf-8') as f:
@@ -160,33 +152,19 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         return False, None
 
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
-    
     if user_id in user_sessions:
-        if "temp_dirs" in user_sessions[user_id]:
-            for d in user_sessions[user_id]["temp_dirs"]:
-                shutil.rmtree(d, ignore_errors=True)
+        for d in user_sessions[user_id].get("temp_dirs", []):
+            shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
-    
-    welcome = (
-        f"👋 Привет, {user.first_name}!\n\n"
-        "📸🖨️ Я помогу распечатать фото и документы.\n\n"
-        "📎 Отправляй файлы (JPG, PNG, PDF, DOC, DOCX)\n"
-        "📦 Можно отправлять несколько файлов за раз\n"
-        "💰 Я посчитаю стоимость и сроки\n\n"
-        f"📞 Контакт: {CONTACT_PHONE}\n"
-        f"🚚 Доставка: {DELIVERY_OPTIONS}"
-    )
-    
+    welcome = (f"👋 Привет, {user.first_name}!\n\n📸🖨️ Я помогу распечатать фото и документы.\n\n📎 Отправляй файлы (JPG, PNG, PDF, DOC, DOCX)\n📦 Можно отправлять несколько файлов за раз\n💰 Я посчитаю стоимость и сроки\n\n📞 Контакт: {CONTACT_PHONE}\n🚚 Доставка: {DELIVERY_OPTIONS}")
     await update.message.reply_text(welcome)
     return WAITING_FOR_FILE
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     if user_id not in user_sessions:
         user_sessions[user_id] = {
             "files": [],
@@ -198,11 +176,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "first_name": update.effective_user.first_name
             }
         }
-    
     file = None
     file_name = None
     file_type = None
-    
     if update.message.document:
         file = update.message.document
         file_name = file.file_name
@@ -220,34 +196,23 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_type = "photo"
     else:
         return WAITING_FOR_FILE
-    
     file_path, temp_dir = await download_file(file, file_name, user_id)
     if not file_path:
         await update.message.reply_text("❌ Ошибка загрузки")
         return WAITING_FOR_FILE
-    
     pages = await count_pages_in_file(file_path, file_name)
-    
-    user_sessions[user_id]["files"].append({
-        "path": file_path,
-        "name": file_name,
-        "type": file_type,
-        "pages": pages
-    })
+    user_sessions[user_id]["files"].append({"path": file_path, "name": file_name, "type": file_type, "pages": pages})
     user_sessions[user_id]["temp_dirs"].append(temp_dir)
     user_sessions[user_id]["total_pages"] += pages
-    
     files_count = len(user_sessions[user_id]["files"])
     photo_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'photo')
     doc_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'doc')
-    
     text = f"✅ Файл добавлен!\n\n📊 Статистика:\n"
     if photo_count > 0:
         text += f"📸 Фото: {photo_count}\n"
     if doc_count > 0:
         text += f"📄 Документы: {doc_count}\n"
     text += f"📄 Всего страниц: {user_sessions[user_id]['total_pages']}\n\n"
-    
     if doc_count > 0:
         text += "Выберите тип печати для документов:"
         keyboard = [
@@ -265,7 +230,6 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("➕ Добавить ещё", callback_data="add_more")],
             [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
         ]
-    
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return WAITING_FOR_FILE
 
@@ -274,11 +238,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     data = query.data
-    
     if data == "add_more":
         await query.message.edit_text("📤 Отправьте следующие файлы")
         return WAITING_FOR_FILE
-    
     if data == "cancel":
         if user_id in user_sessions:
             for d in user_sessions[user_id].get("temp_dirs", []):
@@ -286,7 +248,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del user_sessions[user_id]
         await query.message.edit_text("❌ Заказ отменён")
         return WAITING_FOR_FILE
-    
     if data == "new_order":
         if user_id in user_sessions:
             for d in user_sessions[user_id].get("temp_dirs", []):
@@ -294,39 +255,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del user_sessions[user_id]
         await query.message.edit_text("🔄 Отправьте файлы для нового заказа")
         return WAITING_FOR_FILE
-    
     if data.startswith("photo_"):
         format_type = data.split("_")[1]
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = format_type
-        await query.message.edit_text(
-            "🔢 Сколько копий напечатать?",
-            reply_markup=get_quantity_keyboard()
-        )
+        await query.message.edit_text("🔢 Сколько копий напечатать?", reply_markup=get_quantity_keyboard())
         return ENTERING_QUANTITY
-    
     if data.startswith("doc_"):
         color = data.split("_")[1]
         user_sessions[user_id]["type"] = "doc"
         user_sessions[user_id]["color"] = color
-        await query.message.edit_text(
-            "🔢 Сколько копий напечатать?",
-            reply_markup=get_quantity_keyboard()
-        )
+        await query.message.edit_text("🔢 Сколько копий напечатать?", reply_markup=get_quantity_keyboard())
         return ENTERING_QUANTITY
-    
     if data.startswith("qty_"):
         quantity = int(data.split("_")[1])
         session = user_sessions[user_id]
         session["quantity"] = quantity
-        
         files = session["files"]
         file_type = session["type"]
-        
         total = 0
         total_pages = 0
         details = "📊 **ДЕТАЛЬНЫЙ РАСЧЁТ:**\n\n"
-        
         for i, f in enumerate(files, 1):
             if file_type == "photo":
                 price_dict = PHOTO_PRICES[session["format"]]
@@ -341,74 +290,34 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 total += file_total
                 total_pages += file_pages
                 details += f"📄 Файл {i}: {f['pages']} стр. × {quantity} = {file_pages} стр., {file_total} руб.\n"
-        
         session["total"] = total
         session["total_pages"] = total_pages
         session["delivery"] = estimate_delivery_time(total_pages)
-        
-        text = f"{details}\n📋 **ИТОГО:**\n"
-        text += f"📦 Файлов: {len(files)}\n"
-        text += f"📊 Страниц: {total_pages}\n"
-        text += f"💰 Сумма: {total} руб.\n"
-        text += f"⏳ Срок: {session['delivery']}\n\n"
-        text += "Подтверждаете заказ?"
-        
+        text = f"{details}\n📋 **ИТОГО:**\n📦 Файлов: {len(files)}\n📊 Страниц: {total_pages}\n💰 Сумма: {total} руб.\n⏳ Срок: {session['delivery']}\n\nПодтверждаете заказ?"
         keyboard = [
             [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm"),
              InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
         ]
-        
         await query.message.delete()
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=user_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return CONFIRMING_ORDER
-    
     if data == "confirm":
         session = user_sessions.get(user_id)
         if not session:
             await query.edit_message_text("❌ Ошибка: сессия не найдена")
             return WAITING_FOR_FILE
-        
-        success, folder = save_order_to_folder(
-            user_id,
-            session['user_info']['username'],
-            session,
-            session['files']
-        )
-        
+        success, folder = save_order_to_folder(user_id, session['user_info']['username'], session, session['files'])
         if success:
-            text = (
-                "✅ **ЗАКАЗ ОФОРМЛЕН!**\n\n"
-                f"👤 {session['user_info']['first_name']}\n"
-                f"📦 Файлов: {len(session['files'])}\n"
-                f"📊 Страниц: {session['total_pages']}\n"
-                f"💰 Сумма: {session['total']} руб.\n"
-                f"⏳ Срок: {session['delivery']}\n\n"
-                f"📞 Контакт: {CONTACT_PHONE}\n"
-                f"🚚 Доставка: {DELIVERY_OPTIONS}\n\n"
-                "Спасибо за заказ!"
-            )
+            text = (f"✅ **ЗАКАЗ ОФОРМЛЕН!**\n\n👤 {session['user_info']['first_name']}\n📦 Файлов: {len(session['files'])}\n📊 Страниц: {session['total_pages']}\n💰 Сумма: {session['total']} руб.\n⏳ Срок: {session['delivery']}\n\n📞 Контакт: {CONTACT_PHONE}\n🚚 Доставка: {DELIVERY_OPTIONS}\n\nСпасибо за заказ!")
         else:
             text = "❌ Ошибка при сохранении заказа"
-        
         for d in session.get("temp_dirs", []):
             shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
-        
         keyboard = [[InlineKeyboardButton("🔄 Новый заказ", callback_data="new_order")]]
         await query.message.delete()
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
+        await context.bot.send_message(chat_id=user_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return WAITING_FOR_FILE
-    
     return WAITING_FOR_FILE
 
 def get_quantity_keyboard():
@@ -430,14 +339,9 @@ def get_quantity_keyboard():
 async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     quantity = extract_number_from_text(update.message.text)
-    
     if not quantity or quantity < 1 or quantity > 1000:
-        await update.message.reply_text(
-            "Введите число от 1 до 1000:",
-            reply_markup=get_quantity_keyboard()
-        )
+        await update.message.reply_text("Введите число от 1 до 1000:", reply_markup=get_quantity_keyboard())
         return ENTERING_QUANTITY
-    
     query = type('Query', (), {
         'data': f'qty_{quantity}',
         'from_user': update.effective_user,
@@ -449,13 +353,13 @@ async def handle_quantity_input(update: Update, context: ContextTypes.DEFAULT_TY
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"❌ Ошибка: {context.error}")
 
-# ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
-
-def init_bot():
-    """Создаёт и возвращает готовое Application"""
+# ========== ИНИЦИАЛИЗАЦИЯ БОТА (ВЫПОЛНЯЕТСЯ ПРИ ИМПОРТЕ) ==========
+def init_bot_sync():
+    global application, _bot_initialized
+    if _bot_initialized:
+        return
     logger.info("🚀 Инициализация бота...")
     app_bot = Application.builder().token(TOKEN).build()
-    
     conv_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
@@ -466,128 +370,78 @@ def init_bot():
                 MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
                 CallbackQueryHandler(button_handler),
             ],
-            SELECTING_PHOTO_FORMAT: [
-                CallbackQueryHandler(button_handler),
-            ],
-            SELECTING_DOC_TYPE: [
-                CallbackQueryHandler(button_handler),
-            ],
+            SELECTING_PHOTO_FORMAT: [CallbackQueryHandler(button_handler)],
+            SELECTING_DOC_TYPE: [CallbackQueryHandler(button_handler)],
             ENTERING_QUANTITY: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quantity_input),
                 CallbackQueryHandler(button_handler),
             ],
-            CONFIRMING_ORDER: [
-                CallbackQueryHandler(button_handler),
-            ],
+            CONFIRMING_ORDER: [CallbackQueryHandler(button_handler)],
         },
         fallbacks=[CommandHandler("start", start)],
     )
-    
     app_bot.add_handler(conv_handler)
     app_bot.add_error_handler(error_handler)
-    return app_bot
+    
+    # Создаём event loop и инициализируем
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(app_bot.initialize())
+    loop.run_until_complete(app_bot.start())
+    
+    # Устанавливаем веб-хук
+    if RENDER_EXTERNAL_URL:
+        webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
+        loop.run_until_complete(app_bot.bot.delete_webhook(drop_pending_updates=True))
+        loop.run_until_complete(app_bot.bot.set_webhook(webhook_url))
+        logger.info(f"✅ Веб-хук установлен: {webhook_url}")
+    
+    application = app_bot
+    _bot_initialized = True
+    logger.info("✅ Бот готов к работе")
+
+# Вызываем инициализацию сразу
+init_bot_sync()
 
 # ========== FLASK ПРИЛОЖЕНИЕ ==========
 app = Flask(__name__)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """Приём обновлений от Telegram"""
     global application
-    
-    # Подробное логирование
     logger.info("📩 Webhook вызван")
     if not application:
         logger.error("❌ application is None")
         return jsonify({"error": "Bot not initialized"}), 500
-    
     try:
         update_data = request.get_json()
         if not update_data:
             logger.error("❌ Нет данных")
             return jsonify({"error": "No data"}), 400
-        
         logger.info(f"📦 Получено обновление ID: {update_data.get('update_id')}")
         update = Update.de_json(update_data, application.bot)
-        
-        # Проверяем, что у application есть loop
         if not hasattr(application, 'loop') or application.loop is None:
-            logger.error("❌ application.lost loop отсутствует")
+            logger.error("❌ application.loop отсутствует")
             return jsonify({"error": "No event loop"}), 500
-        
-        # Запускаем обработку в event loop бота
-        asyncio.run_coroutine_threadsafe(
-            application.process_update(update),
-            application.loop
-        )
-        
+        asyncio.run_coroutine_threadsafe(application.process_update(update), application.loop)
         logger.info("✅ Обновление отправлено в обработку")
         return "OK", 200
-        
     except Exception as e:
         logger.exception(f"❌ Ошибка в webhook: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/health')
 def health():
-    return jsonify({
-        "status": "ok",
-        "bot_ready": application is not None,
-        "timestamp": datetime.now().isoformat()
-    })
+    return jsonify({"status": "ok", "bot_ready": application is not None, "timestamp": datetime.now().isoformat()})
 
 @app.route('/stats')
 def stats():
     orders = len(os.listdir(ORDERS_FOLDER)) if os.path.exists(ORDERS_FOLDER) else 0
-    return jsonify({
-        "orders": orders,
-        "active_sessions": len(user_sessions),
-        "bot_ready": application is not None
-    })
+    return jsonify({"orders": orders, "active_sessions": len(user_sessions), "bot_ready": application is not None})
 
 @app.route('/')
 def home():
-    return f"""
-    <html>
-        <head><title>Print Bot</title></head>
-        <body style="font-family: Arial; text-align: center; margin-top: 50px;">
-            <h1>🤖 Print Bot</h1>
-            <h2 style="color: green;">✅ Бот работает!</h2>
-            <p>Используйте Telegram для заказов.</p>
-            <p><a href="/stats">Статистика</a> | <a href="/health">Здоровье</a></p>
-        </body>
-    </html>
-    """
-
-# ========== ЗАПУСК ==========
+    return f"<html><body><h1>🤖 Print Bot</h1><p>Бот работает!</p><a href='/stats'>Статистика</a></body></html>"
 
 if __name__ == "__main__":
-    print("="*60)
-    print("🚀 ЗАПУСК БОТА")
-    print("="*60)
-    
-    # Инициализируем бота
-    application = init_bot()
-    
-    # Создаём event loop и инициализируем application
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    # Запускаем инициализацию
-    loop.run_until_complete(application.initialize())
-    loop.run_until_complete(application.start())
-    
-    # Устанавливаем веб-хук
-    if RENDER_EXTERNAL_URL:
-        webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
-        loop.run_until_complete(application.bot.delete_webhook(drop_pending_updates=True))
-        loop.run_until_complete(application.bot.set_webhook(webhook_url))
-        logger.info(f"✅ Веб-хук установлен: {webhook_url}")
-    else:
-        logger.warning("⚠️ RENDER_EXTERNAL_URL не задан, веб-хук не установлен")
-    
-    logger.info("✅ Бот готов к работе")
-    print("🌐 Запуск Flask...")
-    
-    # Запускаем Flask (блокирующий вызов)
     app.run(host='0.0.0.0', port=PORT)

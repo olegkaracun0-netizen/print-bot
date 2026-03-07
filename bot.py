@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-С возможностью скачивания заказов через веб-интерфейс
+Исправлена ошибка с download_file()
 """
 
 import os
@@ -15,9 +15,9 @@ import re
 import shutil
 import traceback
 import zipfile
+import threading
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, send_from_directory
-from flask import render_template_string
 
 # Используем синхронную версию python-telegram-bot
 import telegram
@@ -26,7 +26,6 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryH
 
 import PyPDF2
 from docx import Document
-from PIL import Image
 
 # ========== НАСТРОЙКИ ==========
 TOKEN = os.environ.get("TOKEN")
@@ -43,14 +42,14 @@ PORT = int(os.environ.get("PORT", 10000))
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
-# ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ НА СЕРВЕРЕ ==========
+# ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ ==========
 ORDERS_FOLDER = "заказы"
 ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FOLDER)
 
 # Создаем папку для заказов
 try:
     os.makedirs(ORDERS_PATH, exist_ok=True)
-    print(f"📁 Папка заказов на сервере: {ORDERS_PATH}")
+    print(f"📁 Папка заказов: {ORDERS_PATH}")
 except Exception as e:
     print(f"❌ Ошибка создания папки: {e}")
     sys.exit(1)
@@ -126,16 +125,14 @@ def count_pages_in_file(file_path, file_name):
                 
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
-            # Приблизительный подсчет страниц в Word
             paragraphs = len(doc.paragraphs)
             estimated_pages = max(1, paragraphs // 35)
             
-            # Учитываем таблицы
             tables_count = len(doc.tables)
             if tables_count > 0:
                 estimated_pages += tables_count // 2
             
-            logger.info(f"📄 Word: {file_name} - {estimated_pages} стр. (приблизительно)")
+            logger.info(f"📄 Word: {file_name} - {estimated_pages} стр.")
             return estimated_pages
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
@@ -148,21 +145,21 @@ def count_pages_in_file(file_path, file_name):
         logger.error(f"Ошибка подсчета страниц: {e}")
         return 1
 
-def download_file(file, file_name, user_id):
-    """Скачивает файл во временную папку"""
+def download_file(file_obj, file_name):
+    """Скачивает файл во временную папку - ИСПРАВЛЕНО: 2 аргумента"""
     try:
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
         
         # Универсальный метод скачивания
-        if hasattr(file, 'get_file'):  # Для PhotoSize
-            file_obj = file.get_file()
-            file_obj.download(custom_path=file_path)
-        elif hasattr(file, 'download'):  # Для Document
+        if hasattr(file_obj, 'get_file'):  # Для PhotoSize
+            file = file_obj.get_file()
             file.download(custom_path=file_path)
+        elif hasattr(file_obj, 'download'):  # Для Document
+            file_obj.download(custom_path=file_path)
         else:
             with open(file_path, 'wb') as f:
-                file_content = file.download_as_bytearray()
+                file_content = file_obj.download_as_bytearray()
                 f.write(file_content)
         
         logger.info(f"✅ Файл скачан: {file_path}")
@@ -292,7 +289,6 @@ def handle_media_group(update, context):
         group_timers[timer_key].cancel()
     
     # Создаем новый таймер на 2 секунды
-    import threading
     timer = threading.Timer(2.0, process_media_group, args=[user_id, media_group_id, context])
     timer.daemon = True
     timer.start()
@@ -334,13 +330,13 @@ def process_media_group(user_id, media_group_id, context):
         photo_count = 0
         
         for message in messages:
-            file = None
+            file_obj = None
             file_name = None
             file_type = None
             
             if message.document:
-                file = message.document
-                file_name = file.file_name
+                file_obj = message.document
+                file_name = file_obj.file_name
                 ext = file_name.lower().split('.')[-1]
                 if ext in ['jpg', 'jpeg', 'png']:
                     file_type = "photo"
@@ -351,15 +347,15 @@ def process_media_group(user_id, media_group_id, context):
                 else:
                     continue
             elif message.photo:
-                file = message.photo[-1]
+                file_obj = message.photo[-1]
                 file_name = f"photo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
                 file_type = "photo"
                 photo_count += 1
             else:
                 continue
             
-            # Скачиваем файл
-            file_path, temp_dir = download_file(file, file_name, user_id)
+            # Скачиваем файл - ИСПРАВЛЕНО: передаем 2 аргумента
+            file_path, temp_dir = download_file(file_obj, file_name)
             if not file_path:
                 continue
             
@@ -375,6 +371,13 @@ def process_media_group(user_id, media_group_id, context):
             })
             user_sessions[user_id]["temp_dirs"].append(temp_dir)
             user_sessions[user_id]["total_pages"] += pages
+        
+        if not user_sessions[user_id]["files"]:
+            context.bot.send_message(
+                chat_id=user_id,
+                text="❌ Не удалось загрузить файлы"
+            )
+            return
         
         files_count = len(user_sessions[user_id]["files"])
         total_pages = user_sessions[user_id]["total_pages"]
@@ -436,13 +439,13 @@ def process_single_file(update, context):
         }
     
     # Определяем тип файла
-    file = None
+    file_obj = None
     file_name = None
     file_type = None
     
     if message.document:
-        file = message.document
-        file_name = file.file_name
+        file_obj = message.document
+        file_name = file_obj.file_name
         ext = file_name.lower().split('.')[-1]
         if ext in ['jpg', 'jpeg', 'png']:
             file_type = "photo"
@@ -452,14 +455,14 @@ def process_single_file(update, context):
             message.reply_text("❌ Неподдерживаемый формат")
             return WAITING_FOR_FILE
     elif message.photo:
-        file = message.photo[-1]
+        file_obj = message.photo[-1]
         file_name = f"photo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
         file_type = "photo"
     else:
         return WAITING_FOR_FILE
     
-    # Скачиваем файл
-    file_path, temp_dir = download_file(file, file_name, user_id)
+    # Скачиваем файл - ИСПРАВЛЕНО: передаем 2 аргумента
+    file_path, temp_dir = download_file(file_obj, file_name)
     if not file_path:
         message.reply_text("❌ Ошибка загрузки")
         return WAITING_FOR_FILE
@@ -586,7 +589,7 @@ def button_handler(update, context):
                 total += file_total
                 total_pages += f['pages'] * quantity
                 details += f"📸 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['pages']} стр. × {quantity} копий = {f['pages'] * quantity} стр.\n"
+                details += f"   • {f['pages']} стр. × {quantity} коп. = {f['pages'] * quantity} стр.\n"
                 details += f"   • {file_total // quantity} руб./копия\n"
                 details += f"   • **{file_total} руб.**\n\n"
             else:
@@ -596,8 +599,8 @@ def button_handler(update, context):
                 total += file_total
                 total_pages += file_pages
                 details += f"📄 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['pages']} стр. × {quantity} копий = {file_pages} стр.\n"
-                details += f"   • {file_total // file_pages} руб./страница\n"
+                details += f"   • {f['pages']} стр. × {quantity} коп. = {file_pages} стр.\n"
+                details += f"   • {file_total // file_pages} руб./стр.\n"
                 details += f"   • **{file_total} руб.**\n\n"
         
         session["total"] = total
@@ -640,6 +643,7 @@ def button_handler(update, context):
         )
         
         if success:
+            order_name = os.path.basename(folder)
             text = (
                 "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
                 f"👤 Заказчик: {session['user_info']['first_name']}\n"
@@ -650,8 +654,8 @@ def button_handler(update, context):
                 f"⏳ Срок выполнения: {session['delivery']}\n\n"
                 f"📞 Контактный телефон: {CONTACT_PHONE}\n"
                 f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                "Спасибо за заказ! 😊\n\n"
-                f"🔗 Скачать заказ: {RENDER_URL}/orders/{os.path.basename(folder)}"
+                f"🔗 Ссылка для скачивания:\n{RENDER_URL}/orders/{order_name}\n\n"
+                "Спасибо за заказ! 😊"
             )
         else:
             text = "❌ Ошибка при сохранении заказа"
@@ -709,6 +713,7 @@ def handle_quantity_input(update, context):
         return ENTERING_QUANTITY
     
     # Создаем callback как при нажатии кнопки
+    context.user_data['temp_quantity'] = quantity
     query = type('Query', (), {
         'data': f'qty_{quantity}',
         'from_user': update.effective_user,
@@ -717,7 +722,7 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
-# ========== ВЕБ-ИНТЕРФЕЙС ДЛЯ ПРОСМОТРА ЗАКАЗОВ ==========
+# ========== ВЕБ-ИНТЕРФЕЙС ==========
 app = Flask(__name__)
 
 @app.route('/orders/')
@@ -731,18 +736,17 @@ def list_orders():
                 if os.path.isdir(item_path):
                     # Получаем информацию о заказе
                     info_file = os.path.join(item_path, "информация_о_заказе.txt")
+                    info_text = ""
                     if os.path.exists(info_file):
                         with open(info_file, 'r', encoding='utf-8') as f:
-                            info = f.read()
-                    else:
-                        info = "Информация отсутствует"
+                            info_text = f.read()
                     
                     # Список файлов
                     files = []
                     for f in os.listdir(item_path):
                         if f != "информация_о_заказе.txt":
                             file_path = os.path.join(item_path, f)
-                            file_size = os.path.getsize(file_path) // 1024  # KB
+                            file_size = os.path.getsize(file_path) // 1024
                             files.append({
                                 'name': f,
                                 'size': file_size,
@@ -752,7 +756,7 @@ def list_orders():
                     orders.append({
                         'name': item,
                         'path': item_path,
-                        'info': info,
+                        'info': info_text.replace('\n', '<br>'),
                         'files': files,
                         'created': datetime.fromtimestamp(os.path.getctime(item_path)).strftime('%d.%m.%Y %H:%M:%S')
                     })
@@ -771,9 +775,9 @@ def list_orders():
                 h1 { color: #333; }
                 .order { background: white; margin: 20px 0; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
                 .order-header { background: #667eea; color: white; margin: -20px -20px 20px -20px; padding: 15px 20px; border-radius: 10px 10px 0 0; }
-                .order-header h2 { margin: 0; }
-                .order-date { font-size: 0.9em; opacity: 0.9; }
-                .info { white-space: pre-wrap; background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .order-header h2 { margin: 0; font-size: 1.2em; }
+                .order-date { font-size: 0.9em; opacity: 0.9; margin-top: 5px; }
+                .info { background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; white-space: pre-wrap; font-family: monospace; }
                 .files { margin: 10px 0; }
                 .file { display: inline-block; background: #e9ecef; padding: 8px 15px; margin: 5px; border-radius: 20px; text-decoration: none; color: #333; }
                 .file:hover { background: #dee2e6; }
@@ -798,7 +802,7 @@ def list_orders():
                     <div class="order-date">Создан: {{ order.created }}</div>
                 </div>
                 
-                <div class="info">{{ order.info }}</div>
+                <div class="info">{{ order.info|safe }}</div>
                 
                 <div class="files">
                     <h3>Файлы:</h3>
@@ -807,7 +811,7 @@ def list_orders():
                     {% endfor %}
                 </div>
                 
-                <a href="/orders/{{ order.name }}/download" class="download-all">⬇️ Скачать все файлы</a>
+                <a href="/orders/{{ order.name }}/download" class="download-all">⬇️ Скачать все файлы (ZIP)</a>
             </div>
             {% endfor %}
         </body>
@@ -830,7 +834,7 @@ def view_order(order_name):
     files = []
     for f in os.listdir(order_path):
         file_path = os.path.join(order_path, f)
-        if os.path.isfile(file_path):
+        if os.path.isfile(file_path) and f != "информация_о_заказе.txt":
             file_size = os.path.getsize(file_path) // 1024
             files.append({
                 'name': f,
@@ -843,7 +847,7 @@ def view_order(order_name):
     info_file = os.path.join(order_path, "информация_о_заказе.txt")
     if os.path.exists(info_file):
         with open(info_file, 'r', encoding='utf-8') as f:
-            info = f.read()
+            info = f.read().replace('\n', '<br>')
     
     html = f"""
     <!DOCTYPE html>
@@ -854,12 +858,13 @@ def view_order(order_name):
         <style>
             body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
             .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
-            h1 {{ color: #333; }}
-            .info {{ background: #f8f9fa; padding: 15px; border-radius: 5px; white-space: pre-wrap; margin: 20px 0; }}
+            h1 {{ color: #333; font-size: 1.5em; }}
+            .info {{ background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0; white-space: pre-wrap; font-family: monospace; }}
             .file {{ display: block; background: #e9ecef; padding: 10px; margin: 5px 0; border-radius: 5px; text-decoration: none; color: #333; }}
             .file:hover {{ background: #dee2e6; }}
             .back {{ display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; }}
             .download-all {{ display: inline-block; background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 10px 0; }}
+            .download-all:hover {{ background: #218838; }}
         </style>
     </head>
     <body>
@@ -868,7 +873,7 @@ def view_order(order_name):
             <h1>📁 Заказ: {order_name}</h1>
             <div class="info">{info}</div>
             <h3>Файлы:</h3>
-            {"".join([f'<a href="{f["url"]}" class="file" download>📄 {f["name"]} ({f["size"]} KB)</a>' for f in files])}
+            {''.join([f'<a href="{f["url"]}" class="file" download>📄 {f["name"]} ({f["size"]} KB)</a>' for f in files])}
             <a href="/orders/{order_name}/download" class="download-all">⬇️ Скачать все файлы (ZIP)</a>
         </div>
     </body>
@@ -877,7 +882,7 @@ def view_order(order_name):
     return html
 
 @app.route('/orders/<path:order_name>/<filename>')
-def download_file(order_name, filename):
+def download_order_file(order_name, filename):
     """Скачивание отдельного файла"""
     order_path = os.path.join(ORDERS_PATH, order_name)
     return send_from_directory(order_path, filename, as_attachment=True)
@@ -898,7 +903,7 @@ def download_all_files(order_name):
                 arcname = os.path.relpath(file_path, order_path)
                 zipf.write(file_path, arcname)
     
-    return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip")
+    return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip", mimetype='application/zip')
 
 @app.route('/webhook', methods=['POST'])
 def webhook():

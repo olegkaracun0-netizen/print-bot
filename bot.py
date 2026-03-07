@@ -2,16 +2,6 @@
 # -*- coding: utf-8 -*-
 
 """
-╔══════════════════════════════════════════════════════════════════════════════════╗
-║                                                                                  ║
-║   ░█▀▀░█▀█░█▀▄░█▀▀░█░█░░░█▀▀░█▀█░█▄█░█▀█░█░░░█▀▀░▀█▀░█▀▀░█░█░█▀▄░█▀▀░█▀▄      ║
-║   ░█░░░█░█░█░█░█▀▀░▄▀▄░░░█░░░█░█░█░█░█▀▀░█░░░█▀▀░░█░░█▀▀░█▄█░█▀▄░█▀▀░█▀▄      ║
-║   ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀░░░▀▀▀░▀▀▀░▀░▀░▀░░░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀      ║
-║                                                                                  ║
-║                     ⚡ СУПЕР-ПРЕМИУМ БОТ ДЛЯ ПЕЧАТИ ⚡                           ║
-║                                                                                  ║
-╚══════════════════════════════════════════════════════════════════════════════════╝
-
 Telegram бот для печати фото и документов
 СУПЕР-ПРЕМИУМ ДИЗАЙН с анимациями и 3D-эффектами
 """
@@ -26,7 +16,6 @@ import shutil
 import traceback
 import zipfile
 import threading
-import random
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string, abort
 
@@ -71,7 +60,7 @@ except Exception as e:
 # ========== ФАЙЛ ДЛЯ ХРАНЕНИЯ ИСТОРИИ ЗАКАЗОВ ==========
 ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
 
-# ========== СТАТУСЫ ЗАКАЗОВ С НЕОНОВЫМИ ЦВЕТАМИ ==========
+# ========== СТАТУСЫ ЗАКАЗОВ ==========
 ORDER_STATUSES = {
     "new": "🆕 Новый",
     "processing": "🔄 В обработке",
@@ -83,12 +72,10 @@ ORDER_STATUSES = {
 }
 
 def get_status_display(status):
-    """Возвращает отображение статуса"""
     return ORDER_STATUSES.get(status, status)
 
 # Загружаем историю заказов
 def load_orders_history():
-    """Загружает историю заказов из JSON файла"""
     try:
         if os.path.exists(ORDERS_DB_FILE):
             with open(ORDERS_DB_FILE, 'r', encoding='utf-8') as f:
@@ -99,7 +86,6 @@ def load_orders_history():
         return []
 
 def save_order_to_history(order_data):
-    """Сохраняет заказ в историю"""
     try:
         history = load_orders_history()
         history.append(order_data)
@@ -111,7 +97,6 @@ def save_order_to_history(order_data):
         return False
 
 def update_order_status(order_id, new_status):
-    """Обновляет статус заказа"""
     try:
         history = load_orders_history()
         updated = False
@@ -128,20 +113,15 @@ def update_order_status(order_id, new_status):
             with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
             
-            # Обновляем файл информации в папке заказа
             order_folder = os.path.join(ORDERS_PATH, order_id)
             info_file = os.path.join(order_folder, "информация_о_заказе.txt")
             if os.path.exists(info_file):
                 with open(info_file, 'r', encoding='utf-8') as f:
                     content = f.read()
-                
-                import re
                 content = re.sub(r'Статус:.*\n', f'Статус: {get_status_display(new_status)}\n', content)
-                
                 with open(info_file, 'w', encoding='utf-8') as f:
                     f.write(content)
             
-            # Отправляем уведомление клиенту
             if user_id and bot:
                 try:
                     bot.send_message(
@@ -151,7 +131,6 @@ def update_order_status(order_id, new_status):
                              f"📌 Новый статус: {get_status_display(new_status)}",
                         parse_mode="Markdown"
                     )
-                    logger.info(f"✅ Уведомление отправлено пользователю {user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления: {e}")
             
@@ -161,9 +140,7 @@ def update_order_status(order_id, new_status):
         logger.error(f"Ошибка обновления статуса: {e}")
         return False
 
-# ========== ФУНКЦИЯ ДЛЯ ФОРМАТИРОВАНИЯ РАЗМЕРА ФАЙЛА ==========
 def format_file_size(size_bytes):
-    """Форматирует размер файла в человеко-читаемый вид"""
     if size_bytes < 1024:
         return f"{size_bytes} B"
     elif size_bytes < 1024 * 1024:
@@ -208,16 +185,13 @@ DOC_PRICES = {
     "color": {(1, 20): 50, (21, 100): 35, (101, 300): 25, (301, float("inf")): 20},
 }
 
-# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def calculate_price(price_dict, quantity):
-    """Рассчитывает стоимость по количеству"""
     for (min_q, max_q), price in price_dict.items():
         if min_q <= quantity <= max_q:
             return price * quantity
     return 0
 
 def estimate_delivery_time(total_items):
-    """Расчет срока доставки"""
     if total_items <= 50:
         return "1 день"
     elif total_items <= 200:
@@ -226,35 +200,27 @@ def estimate_delivery_time(total_items):
         return "3 дня"
 
 def extract_number_from_text(text):
-    """Извлекает число из текста"""
     numbers = re.findall(r'\d+', text)
     return int(numbers[0]) if numbers else None
 
 def count_items_in_file(file_path, file_name):
-    """Подсчет количества в файле (фото = 1, документы = страницы)"""
     try:
         if file_name.lower().endswith('.pdf'):
             with open(file_path, 'rb') as f:
                 pdf = PyPDF2.PdfReader(f)
                 page_count = len(pdf.pages)
-                logger.info(f"📄 PDF: {file_name} - {page_count} страниц")
                 return page_count, "страниц", "документ"
                 
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
             paragraphs = len(doc.paragraphs)
             estimated_pages = max(1, paragraphs // 35)
-            
             tables_count = len(doc.tables)
             if tables_count > 0:
                 estimated_pages += tables_count // 2
-            
-            logger.info(f"📄 Word: {file_name} - {estimated_pages} страниц")
             return estimated_pages, "страниц", "документ"
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-            # Для фото всегда 1 фото
-            logger.info(f"📸 Фото: {file_name} - 1 фото")
             return 1, "фото", "фото"
             
         return 1, "единиц", "неизвестно"
@@ -263,7 +229,6 @@ def count_items_in_file(file_path, file_name):
         return 1, "единиц", "неизвестно"
 
 def download_file(file_obj, file_name):
-    """Скачивает файл во временную папку"""
     try:
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
@@ -278,31 +243,24 @@ def download_file(file_obj, file_name):
                 file_content = file_obj.download_as_bytearray()
                 f.write(file_content)
         
-        logger.info(f"✅ Файл скачан: {file_path}")
         return file_path, temp_dir
     except Exception as e:
         logger.error(f"❌ Ошибка скачивания: {e}")
         return None, None
 
 def save_order_to_folder(user_id, username, order_data, files_info):
-    """Сохраняет заказ в папку на сервере"""
     try:
         clean_name = re.sub(r'[^\w\s-]', '', username) or f"user_{user_id}"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         order_id = f"{clean_name}_{timestamp}"
         order_folder = os.path.join(ORDERS_PATH, order_id)
         os.makedirs(order_folder, exist_ok=True)
-        logger.info(f"📁 Создана папка заказа: {order_folder}")
-        
-        saved_files = []
         
         for i, f in enumerate(files_info, 1):
             if os.path.exists(f['path']):
                 safe_name = re.sub(r'[<>:"/\\|?*]', '', f['name'])
                 new_path = os.path.join(order_folder, f"{i}_{safe_name}")
                 shutil.copy2(f['path'], new_path)
-                saved_files.append(new_path)
-                logger.info(f"📄 Файл {i} скопирован: {new_path}")
             else:
                 logger.error(f"❌ Файл не найден: {f['path']}")
         
@@ -358,8 +316,6 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             
             f.write(f"\nВсего файлов: {len(files_info)}")
         
-        logger.info(f"📝 Информация о заказе сохранена в {info_file}")
-        
         history_entry = {
             "order_id": order_id,
             "folder": order_folder,
@@ -384,7 +340,6 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         return False, None, None
 
 def send_admin_notification(order_data, order_id, order_folder):
-    """Отправляет уведомление админу о новом заказе"""
     try:
         order_url = f"{RENDER_URL}/orders/{order_id}/"
         
@@ -429,10 +384,9 @@ def send_admin_notification(order_data, order_id, order_folder):
     except Exception as e:
         logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
 
-# ========== СУПЕР-ПРЕМИУМ ФУНКЦИИ ДЛЯ TELEGRAM ==========
+# ========== TELEGRAM ФУНКЦИИ ==========
 
 def create_fancy_header(title, emoji):
-    """Создает красивый заголовок с рамкой"""
     return (
         "╔══════════════════════════════════════════════╗\n"
         f"║   {emoji}  {title.upper()}  {emoji}   ║\n"
@@ -440,11 +394,9 @@ def create_fancy_header(title, emoji):
     )
 
 def create_glowing_text(text):
-    """Создает светящийся текст"""
     return f"✨ **{text}** ✨"
 
 def start(update, context):
-    """Команда /start с супер-премиум дизайном"""
     user = update.effective_user
     user_id = user.id
     logger.info(f"✅ /start от {user_id}")
@@ -478,7 +430,6 @@ def start(update, context):
     return WAITING_FOR_FILE
 
 def process_single_file(update, context):
-    """Обработка одиночного файла с супер-премиум дизайном"""
     user_id = update.effective_user.id
     message = update.message
     
@@ -576,7 +527,7 @@ def process_single_file(update, context):
     if total_pages > 0:
         text += f"├ 📄 **Всего страниц:** {total_pages}\n"
     
-    text += "└ 📦 **Всего файлов:** {files_count}\n\n"
+    text += f"└ 📦 **Всего файлов:** {files_count}\n\n"
     text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     if doc_count > 0:
@@ -601,7 +552,6 @@ def process_single_file(update, context):
     return WAITING_FOR_FILE
 
 def handle_media_group(update, context):
-    """Обработка группы файлов"""
     user_id = update.effective_user.id
     message = update.message
     media_group_id = message.media_group_id
@@ -626,7 +576,6 @@ def handle_media_group(update, context):
     return WAITING_FOR_FILE
 
 def process_media_group(user_id, media_group_id, context):
-    """Обрабатывает группу файлов после сбора всех сообщений"""
     try:
         if user_id not in media_groups or media_group_id not in media_groups[user_id]:
             return
@@ -768,7 +717,6 @@ def process_media_group(user_id, media_group_id, context):
         logger.error(traceback.format_exc())
 
 def button_handler(update, context):
-    """Обработка нажатий кнопок с супер-премиум дизайном"""
     query = update.callback_query
     query.answer()
     user_id = query.from_user.id
@@ -1049,7 +997,6 @@ def button_handler(update, context):
     return WAITING_FOR_FILE
 
 def cancel_order(user_id, query=None, context=None):
-    """Общая функция для отмены заказа"""
     if user_id in user_sessions:
         if "temp_dirs" in user_sessions[user_id]:
             for d in user_sessions[user_id]["temp_dirs"]:
@@ -1093,7 +1040,6 @@ def cancel_order(user_id, query=None, context=None):
     return WAITING_FOR_FILE
 
 def handle_file(update, context):
-    """Обработка входящих файлов"""
     user_id = update.effective_user.id
     message = update.message
     
@@ -1103,7 +1049,6 @@ def handle_file(update, context):
     return process_single_file(update, context)
 
 def get_quantity_keyboard():
-    """Клавиатура выбора количества с красивыми кнопками"""
     keyboard = [
         [InlineKeyboardButton("1️⃣", callback_data="qty_1"), 
          InlineKeyboardButton("2️⃣", callback_data="qty_2"),
@@ -1124,7 +1069,6 @@ def get_quantity_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def handle_quantity_input(update, context):
-    """Ручной ввод количества"""
     user_id = update.effective_user.id
     text = update.message.text
     quantity = extract_number_from_text(text)
@@ -1146,7 +1090,7 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
-# ========== ВЕБ-ИНТЕРФЕЙС (CSS ДОБАВЛЕН В РОУТЫ) ==========
+# ========== ВЕБ-ИНТЕРФЕЙС ==========
 app = Flask(__name__)
 
 # Супер-премиум CSS с анимациями и 3D-эффектами
@@ -1535,8 +1479,20 @@ def home():
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>🖨️ Print Bot Premium | Супер-дизайн</title>
         {PREMIUM_CSS}
+        <style>
+            /* Дополнительные стили для проверки */
+            .test-class {{
+                color: red;
+                font-size: 20px;
+                text-align: center;
+                padding: 10px;
+                background: yellow;
+            }}
+        </style>
     </head>
     <body>
+        <div class="test-class">✅ CSS РАБОТАЕТ! Если вы видите этот желтый блок с красным текстом, то CSS подключен правильно.</div>
+        
         <div class="container">
             <div class="premium-card" style="text-align: center; margin-bottom: 40px;">
                 <h1 class="neon-text">✨ PRINT BOT PREMIUM ✨</h1>
@@ -1998,7 +1954,7 @@ def delete_order(order_id):
         with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
         
-        return """
+        return f"""
         <html>
         <head>
             <meta http-equiv="refresh" content="3;url=/orders/">

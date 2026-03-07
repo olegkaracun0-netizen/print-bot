@@ -14,7 +14,7 @@ import asyncio
 import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # ========== ПРИНУДИТЕЛЬНЫЙ ВЫВОД ==========
@@ -300,29 +300,35 @@ def home():
     </html>
     """
 
-# ========== ИНИЦИАЛИЗАЦИЯ ПРИ ИМПОРТЕ ==========
+# ========== ПРИНУДИТЕЛЬНАЯ ИНИЦИАЛИЗАЦИЯ ПРИ ИМПОРТЕ ==========
 print("🔥🔥🔥 ВЫПОЛНЯЕТСЯ КОД В ГЛОБАЛЬНОЙ ОБЛАСТИ 🔥🔥🔥", file=sys.stderr)
 sys.stderr.flush()
 
-# Флаг, чтобы инициализировать бота только один раз
-_initialized = False
+# ВАЖНО: Вызываем init_bot() сразу при импорте модуля
+try:
+    print("🔥🔥🔥 ПЫТАЕМСЯ ИНИЦИАЛИЗИРОВАТЬ БОТА 🔥🔥🔥", file=sys.stderr)
+    sys.stderr.flush()
+    
+    init_bot()
+    
+    print("🔥🔥🔥 БОТ УСПЕШНО ИНИЦИАЛИЗИРОВАН ПРИ ИМПОРТЕ 🔥🔥🔥", file=sys.stderr)
+    sys.stderr.flush()
+    
+except Exception as e:
+    print("🔥🔥🔥 КРИТИЧЕСКАЯ ОШИБКА ПРИ ИНИЦИАЛИЗАЦИИ БОТА 🔥🔥🔥", file=sys.stderr)
+    print(f"🔥🔥🔥 ОШИБКА: {e} 🔥🔥🔥", file=sys.stderr)
+    print("🔥🔥🔥 ПОЛНЫЙ TRACEBACK:", file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    print("🔥🔥🔥 ПРОДОЛЖАЕМ ЗАПУСК, НО БОТ НЕ БУДЕТ РАБОТАТЬ 🔥🔥🔥", file=sys.stderr)
+    sys.stderr.flush()
+    
+    # Не поднимаем исключение, чтобы Flask всё же запустился для отладки
+    # но бот будет неактивен
 
-def initialize_bot_on_import():
-    global _initialized
-    if not _initialized:
-        print("🔥🔥🔥 ВЫЗЫВАЕМ init_bot() ИЗ ГЛОБАЛЬНОЙ ОБЛАСТИ 🔥🔥🔥", file=sys.stderr)
-        sys.stderr.flush()
-        try:
-            init_bot()
-            _initialized = True
-            print("🔥🔥🔥 init_bot() УСПЕШНО ВЫПОЛНЕНА 🔥🔥🔥", file=sys.stderr)
-        except Exception as e:
-            print(f"🔥🔥🔥 КРИТИЧЕСКАЯ ОШИБКА ПРИ ИНИЦИАЛИЗАЦИИ: {e} 🔥🔥🔥", file=sys.stderr)
-            # ВАЖНО: Не скрываем ошибку, позволяем ей остановить запуск
-            raise e
-    else:
-        print("🔥🔥🔥 БОТ УЖЕ ИНИЦИАЛИЗИРОВАН 🔥🔥🔥", file=sys.stderr)
+print("🔥🔥🔥 КОД В ГЛОБАЛЬНОЙ ОБЛАСТИ ЗАВЕРШЕН 🔥🔥🔥", file=sys.stderr)
+sys.stderr.flush()
 
-# ВАЖНО: Вызываем функцию инициализации сразу при импорте модуля
-initialize_bot_on_import()
-
+# ========== ЗАПУСК (для локального тестирования) ==========
+if __name__ == "__main__":
+    print("🔥🔥🔥 ЛОКАЛЬНЫЙ ЗАПУСК 🔥🔥🔥", file=sys.stderr)
+    app.run(host='0.0.0.0', port=PORT, debug=False)

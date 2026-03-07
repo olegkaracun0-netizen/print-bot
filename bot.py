@@ -23,11 +23,18 @@ sys.stderr.flush()
 # =========================================
 
 # ========== НАСТРОЙКИ ==========
-TOKEN = os.environ.get("TOKEN", "8238978593:AAG-rgNUQXF8_MAkLjBgeON2FGUfHhm7YO0")
+# ВАЖНО: Сначала проверяем переменную окружения
+TOKEN_FROM_ENV = os.environ.get("TOKEN")
+if TOKEN_FROM_ENV is None:
+    print("🔥🔥🔥 КРИТИЧЕСКАЯ ОШИБКА: TOKEN не задан в переменных окружения! 🔥🔥🔥", file=sys.stderr)
+    sys.stderr.flush()
+    sys.exit(1)
+
+TOKEN = TOKEN_FROM_ENV
 PORT = int(os.environ.get("PORT", 10000))
 RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL", "")
 
-print(f"📢 ТОКЕН ПОЛУЧЕН: {TOKEN[:10]}...", file=sys.stderr)
+print(f"📢 ТОКЕН ПОЛУЧЕН ИЗ ОКРУЖЕНИЯ: {TOKEN[:10]}...", file=sys.stderr)
 print(f"📢 PORT: {PORT}", file=sys.stderr)
 print(f"📢 RENDER_URL: {RENDER_EXTERNAL_URL}", file=sys.stderr)
 sys.stderr.flush()
@@ -94,13 +101,8 @@ def init_bot():
         logger.info("🚀 НАЧАЛО ИНИЦИАЛИЗАЦИИ БОТА")
         logger.info("=" * 60)
         
-        logger.info(f"📌 Токен: {TOKEN[:10]}...{TOKEN[-5:]}")
+        logger.info(f"📌 Токен из окружения: {TOKEN[:10]}...{TOKEN[-5:]}")
         logger.info(f"📌 Render URL: {RENDER_EXTERNAL_URL}")
-        
-        # Проверяем, что токен не пустой
-        if not TOKEN or TOKEN == "8238978593:AAG-rgNUQXF8_MAkLjBgeON2FGUfHhm7YO0":
-            logger.error("❌ Токен не задан или используется токен по умолчанию!")
-            raise ValueError("TOKEN не задан в переменных окружения")
         
         # Создаём приложение
         logger.info("1️⃣ Создание Application...")
@@ -266,7 +268,7 @@ def debug():
         "webhook_url": f"{RENDER_EXTERNAL_URL}/webhook" if RENDER_EXTERNAL_URL else None,
         "bot_username": bot_info,
         "python_version": sys.version,
-        "token_first_chars": TOKEN[:10] if TOKEN else None,
+        "token_from_env": os.environ.get("TOKEN") is not None,
         "render_url": RENDER_EXTERNAL_URL
     })
 

@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлены все ошибки
+Исправлены маршруты
 """
 
 import os
@@ -17,7 +17,7 @@ import traceback
 import zipfile
 import threading
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string
+from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string, abort
 
 # Используем синхронную версию python-telegram-bot
 import telegram
@@ -1041,7 +1041,7 @@ def list_orders():
     try:
         orders = []
         if os.path.exists(ORDERS_PATH):
-            for item in os.listdir(ORDERS_PATH):
+            for item in sorted(os.listdir(ORDERS_PATH), reverse=True):
                 item_path = os.path.join(ORDERS_PATH, item)
                 if os.path.isdir(item_path) and item != "orders_history.json":
                     # Получаем информацию о заказе
@@ -1425,6 +1425,7 @@ def list_orders():
                             </div>
                             
                             <div class="order-actions">
+                                <a href="/orders/{{ order.id }}/" class="action-btn">👁️ Подробнее</a>
                                 <a href="/orders/{{ order.id }}/download" class="action-btn">⬇️ Скачать все</a>
                             </div>
                         </div>
@@ -1443,13 +1444,13 @@ def list_orders():
         logger.error(f"Ошибка при отображении заказов: {e}")
         return f"Ошибка: {e}", 500
 
-@app.route('/orders/<path:order_name>/')
-def view_order(order_name):
+@app.route('/orders/<path:order_id>/')
+def view_order(order_id):
     """Просмотр конкретного заказа"""
     try:
-        order_path = os.path.join(ORDERS_PATH, order_name)
+        order_path = os.path.join(ORDERS_PATH, order_id)
         if not os.path.exists(order_path) or not os.path.isdir(order_path):
-            return "Заказ не найден", 404
+            abort(404)
         
         # Получаем информацию о заказе
         info_file = os.path.join(order_path, "информация_о_заказе.txt")
@@ -1462,7 +1463,7 @@ def view_order(order_name):
         status = "new"
         history = load_orders_history()
         for h in history:
-            if h.get('order_id') == order_name:
+            if h.get('order_id') == order_id:
                 status = h.get('status', 'new')
                 break
         
@@ -1471,7 +1472,7 @@ def view_order(order_name):
         photos = []
         total_size = 0
         
-        for f in os.listdir(order_path):
+        for f in sorted(os.listdir(order_path)):
             if f != "информация_о_заказе.txt":
                 file_path = os.path.join(order_path, f)
                 file_size = os.path.getsize(file_path)
@@ -1482,7 +1483,7 @@ def view_order(order_name):
                     'name': f,
                     'size': file_size,
                     'size_formatted': format_file_size(file_size),
-                    'url': f'/orders/{order_name}/{f}',
+                    'url': f'/orders/{order_id}/{f}',
                     'is_photo': is_photo
                 }
                 files.append(file_info)
@@ -1492,13 +1493,14 @@ def view_order(order_name):
         
         created = datetime.fromtimestamp(os.path.getctime(order_path))
         
+        # HTML страница заказа
         html = f"""
         <!DOCTYPE html>
         <html lang="ru">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Заказ {order_name}</title>
+            <title>Заказ {order_id}</title>
             <style>
                 body {{
                     font-family: Arial, sans-serif;
@@ -1519,6 +1521,11 @@ def view_order(order_name):
                     margin-bottom: 30px;
                     color: white;
                 }}
+                .header h1 {{
+                    font-size: 2em;
+                    margin-bottom: 10px;
+                    word-break: break-all;
+                }}
                 .nav-links {{
                     display: flex;
                     gap: 15px;
@@ -1530,28 +1537,41 @@ def view_order(order_name):
                     text-decoration: none;
                     padding: 10px 20px;
                     border-radius: 10px;
+                    transition: all 0.3s ease;
+                }}
+                .nav-btn:hover {{
+                    background: rgba(255, 255, 255, 0.25);
+                    transform: translateY(-2px);
                 }}
                 .content {{
                     background: white;
                     border-radius: 20px;
                     padding: 30px;
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
                 }}
-                .status-menu {{
+                .status-section {{
                     background: #f8f9fa;
+                    border-radius: 15px;
                     padding: 20px;
-                    border-radius: 10px;
-                    margin-bottom: 20px;
+                    margin-bottom: 30px;
                 }}
                 .status-buttons {{
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 5px;
+                    gap: 10px;
+                    margin-top: 15px;
                 }}
                 .status-btn {{
-                    padding: 8px 12px;
+                    padding: 10px 15px;
                     border: none;
-                    border-radius: 5px;
+                    border-radius: 8px;
                     cursor: pointer;
+                    font-size: 0.95em;
+                    transition: all 0.2s ease;
+                }}
+                .status-btn:hover {{
+                    transform: translateY(-2px);
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
                 }}
                 .status-btn.new {{ background: #e3f2fd; }}
                 .status-btn.processing {{ background: #fff3e0; }}
@@ -1560,30 +1580,80 @@ def view_order(order_name):
                 .status-btn.shipped {{ background: #f3e5f5; }}
                 .status-btn.delivered {{ background: #e8f0fe; }}
                 .status-btn.cancelled {{ background: #ffebee; }}
+                
+                .info-section {{
+                    background: #f8f9fa;
+                    border-radius: 15px;
+                    padding: 20px;
+                    margin-bottom: 30px;
+                }}
+                .info-content {{
+                    white-space: pre-wrap;
+                    font-family: monospace;
+                    background: white;
+                    padding: 15px;
+                    border-radius: 10px;
+                    max-height: 400px;
+                    overflow-y: auto;
+                }}
                 .photo-gallery {{
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-                    gap: 10px;
+                    gap: 15px;
                     margin: 20px 0;
                 }}
+                .photo-item {{
+                    background: #f8f9fa;
+                    border-radius: 10px;
+                    padding: 10px;
+                    text-align: center;
+                }}
                 .photo-img {{
-                    width: 100%;
-                    height: 150px;
+                    max-width: 100%;
+                    max-height: 150px;
                     object-fit: cover;
                     border-radius: 8px;
                     cursor: pointer;
+                    transition: all 0.2s ease;
                 }}
-                .files-list {{
+                .photo-img:hover {{
+                    transform: scale(1.05);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                }}
+                .files-grid {{
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-                    gap: 10px;
+                    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                    gap: 15px;
                     margin: 20px 0;
                 }}
-                .file-item {{
+                .file-card {{
                     background: #f8f9fa;
-                    padding: 10px;
-                    border-radius: 5px;
+                    border-radius: 10px;
+                    padding: 15px;
                     text-align: center;
+                    text-decoration: none;
+                    color: #333;
+                    transition: all 0.2s ease;
+                    display: block;
+                    border: 1px solid #dee2e6;
+                }}
+                .file-card:hover {{
+                    background: #e9ecef;
+                    transform: translateY(-2px);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+                }}
+                .file-icon {{
+                    font-size: 2em;
+                    margin-bottom: 10px;
+                }}
+                .file-name {{
+                    word-break: break-all;
+                    font-size: 0.9em;
+                }}
+                .file-size {{
+                    color: #666;
+                    font-size: 0.8em;
+                    margin-top: 5px;
                 }}
                 .download-all {{
                     display: inline-block;
@@ -1592,22 +1662,48 @@ def view_order(order_name):
                     text-decoration: none;
                     padding: 15px 30px;
                     border-radius: 10px;
-                    margin-top: 20px;
+                    font-size: 1.1em;
+                    margin-top: 30px;
+                    transition: all 0.3s ease;
+                }}
+                .download-all:hover {{
+                    background: #218838;
+                    transform: translateY(-2px);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                }}
+                .stats {{
+                    display: flex;
+                    gap: 20px;
+                    margin-bottom: 20px;
+                }}
+                .stat {{
+                    background: white;
+                    padding: 10px 20px;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
                 }}
             </style>
             <script>
                 function updateStatus(status) {{
-                    fetch(`/orders/{order_name}/status`, {{
+                    fetch(`/orders/{order_id}/status`, {{
                         method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}},
+                        headers: {{
+                            'Content-Type': 'application/json',
+                        }},
                         body: JSON.stringify({{status: status}})
                     }})
                     .then(response => response.json())
                     .then(data => {{
                         if (data.success) {{
-                            alert('Статус обновлен!');
+                            alert('Статус успешно обновлен!');
                             location.reload();
+                        }} else {{
+                            alert('Ошибка: ' + (data.error || 'неизвестная ошибка'));
                         }}
+                    }})
+                    .catch(error => {{
+                        console.error('Error:', error);
+                        alert('Ошибка при обновлении статуса');
                     }});
                 }}
             </script>
@@ -1615,7 +1711,7 @@ def view_order(order_name):
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>📁 Заказ: {order_name}</h1>
+                    <h1>📁 Заказ: {order_id}</h1>
                     <p>Создан: {created.strftime('%d.%m.%Y %H:%M')}</p>
                 </div>
                 
@@ -1625,8 +1721,8 @@ def view_order(order_name):
                 </div>
                 
                 <div class="content">
-                    <div class="status-menu">
-                        <h3>Статус заказа: {get_status_display(status)}</h3>
+                    <div class="status-section">
+                        <h3>📌 Текущий статус: {get_status_display(status)}</h3>
                         <div class="status-buttons">
                             <button class="status-btn new" onclick="updateStatus('new')">🆕 Новый</button>
                             <button class="status-btn processing" onclick="updateStatus('processing')">🔄 В обработке</button>
@@ -1638,20 +1734,31 @@ def view_order(order_name):
                         </div>
                     </div>
                     
-                    <h3>📋 Информация о заказе</h3>
-                    <pre>{info_text}</pre>
-                    
-                    <h3>📸 Фото</h3>
-                    <div class="photo-gallery">
-                        {''.join([f'<img src="{p["url"]}" class="photo-img" onclick="window.open(\'{p["url"]}\', \'_blank\')">' for p in photos])}
+                    <div class="info-section">
+                        <h3>📋 Информация о заказе</h3>
+                        <div class="info-content">{info_text}</div>
                     </div>
+                    
+                    <div class="stats">
+                        <div class="stat">📦 Файлов: {len(files)}</div>
+                        <div class="stat">💾 Объем: {format_file_size(total_size)}</div>
+                    </div>
+                    
+                    {f'''
+                    <h3>📸 Фото ({len(photos)})</h3>
+                    <div class="photo-gallery">
+                        {''.join([f'<div class="photo-item"><img src="{p["url"]}" class="photo-img" onclick="window.open(\'{p["url"]}\', \'_blank\')"><br>{p["name"]}</div>' for p in photos])}
+                    </div>
+                    ''' if photos else ''}
                     
                     <h3>📄 Файлы</h3>
-                    <div class="files-list">
-                        {''.join([f'<div class="file-item"><a href="{f["url"]}" download>{f["name"]}<br>{f["size_formatted"]}</a></div>' for f in files])}
+                    <div class="files-grid">
+                        {''.join([f'<a href="{f["url"]}" class="file-card" download><div class="file-icon">{"📸" if f["is_photo"] else "📄"}</div><div class="file-name">{f["name"]}</div><div class="file-size">{f["size_formatted"]}</div></a>' for f in files])}
                     </div>
                     
-                    <a href="/orders/{order_name}/download" class="download-all">⬇️ Скачать все файлы (ZIP)</a>
+                    <div style="text-align: center;">
+                        <a href="/orders/{order_id}/download" class="download-all">⬇️ Скачать все файлы (ZIP)</a>
+                    </div>
                 </div>
             </div>
         </body>
@@ -1662,8 +1769,8 @@ def view_order(order_name):
         logger.error(f"Ошибка просмотра заказа: {e}")
         return f"Ошибка: {e}", 500
 
-@app.route('/orders/<path:order_name>/status', methods=['POST'])
-def update_order_status_route(order_name):
+@app.route('/orders/<path:order_id>/status', methods=['POST'])
+def update_order_status_route(order_id):
     """Обновление статуса заказа"""
     try:
         data = request.get_json()
@@ -1674,7 +1781,7 @@ def update_order_status_route(order_name):
         if not new_status:
             return jsonify({"success": False, "error": "Не указан статус"}), 400
         
-        success = update_order_status(order_name, new_status)
+        success = update_order_status(order_id, new_status)
         
         if success:
             return jsonify({"success": True})
@@ -1685,11 +1792,11 @@ def update_order_status_route(order_name):
         logger.error(f"Ошибка обновления статуса: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
-@app.route('/orders/<path:order_name>/download')
-def download_all_files(order_name):
+@app.route('/orders/<path:order_id>/download')
+def download_all_files(order_id):
     """Скачивание всех файлов заказа в ZIP-архиве"""
     try:
-        order_path = os.path.join(ORDERS_PATH, order_name)
+        order_path = os.path.join(ORDERS_PATH, order_id)
         if not os.path.exists(order_path) or not os.path.isdir(order_path):
             return "Заказ не найден", 404
         
@@ -1702,16 +1809,16 @@ def download_all_files(order_name):
                     arcname = os.path.relpath(file_path, order_path)
                     zipf.write(file_path, arcname)
         
-        return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip")
+        return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_id}.zip")
     except Exception as e:
         logger.error(f"Ошибка скачивания: {e}")
         return f"Ошибка: {e}", 500
 
-@app.route('/orders/<path:order_name>/<filename>')
-def download_order_file(order_name, filename):
+@app.route('/orders/<path:order_id>/<filename>')
+def download_order_file(order_id, filename):
     """Скачивание отдельного файла"""
     try:
-        order_path = os.path.join(ORDERS_PATH, order_name)
+        order_path = os.path.join(ORDERS_PATH, order_id)
         return send_from_directory(order_path, filename, as_attachment=True)
     except Exception as e:
         logger.error(f"Ошибка скачивания: {e}")
@@ -1785,12 +1892,10 @@ def home():
                 padding: 20px;
                 margin: 0;
             }}
-            
             .container {{
                 max-width: 800px;
                 width: 100%;
             }}
-            
             .hero {{
                 background: rgba(255, 255, 255, 0.1);
                 backdrop-filter: blur(10px);
@@ -1800,38 +1905,32 @@ def home():
                 text-align: center;
                 box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
             }}
-            
             h1 {{
                 font-size: 3em;
                 margin-bottom: 20px;
             }}
-            
             .stats {{
                 display: grid;
                 grid-template-columns: repeat(3, 1fr);
                 gap: 20px;
                 margin: 30px 0;
             }}
-            
             .stat-card {{
                 background: rgba(255, 255, 255, 0.15);
                 border-radius: 15px;
                 padding: 20px;
             }}
-            
             .stat-value {{
                 font-size: 2em;
                 font-weight: bold;
                 margin-bottom: 5px;
             }}
-            
             .nav-links {{
                 display: flex;
                 gap: 15px;
                 justify-content: center;
                 margin-top: 30px;
             }}
-            
             .nav-btn {{
                 background: white;
                 color: #667eea;
@@ -1841,12 +1940,10 @@ def home():
                 font-weight: bold;
                 transition: all 0.3s ease;
             }}
-            
             .nav-btn:hover {{
                 transform: translateY(-2px);
                 box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
             }}
-            
             .info {{
                 margin-top: 30px;
                 padding: 20px;

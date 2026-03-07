@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлена: сохранение заказов и множественная загрузка
+С сохранением заказов на компьютере и полной функциональностью
 """
 
 import os
@@ -37,15 +37,31 @@ if not RENDER_URL:
     sys.exit(1)
 
 PORT = int(os.environ.get("PORT", 10000))
-ORDERS_FOLDER = "заказы"
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
-# Создаем папку для заказов с абсолютным путем
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ НА КОМПЬЮТЕРЕ ==========
+# Для Windows: C:\Users\Miko\Desktop\заказы\
+# Для Render: ./заказы/
+if os.name == 'nt':  # Windows
+    BASE_DIR = os.path.join('C:\\', 'Users', 'Miko', 'Desktop')
+else:  # Linux/Mac (Render)
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+ORDERS_FOLDER = "заказы"
 ORDERS_PATH = os.path.join(BASE_DIR, ORDERS_FOLDER)
-os.makedirs(ORDERS_PATH, exist_ok=True)
-print(f"📁 Папка заказов: {ORDERS_PATH}")
+
+# Создаем папку для заказов
+try:
+    os.makedirs(ORDERS_PATH, exist_ok=True)
+    print(f"📁 Папка заказов создана: {ORDERS_PATH}")
+    print(f"📁 Права доступа: {oct(os.stat(ORDERS_PATH).st_mode)[-3:]}")
+except Exception as e:
+    print(f"❌ Ошибка создания папки: {e}")
+    # Пробуем создать в текущей директории как запасной вариант
+    ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FOLDER)
+    os.makedirs(ORDERS_PATH, exist_ok=True)
+    print(f"📁 Используем запасную папку: {ORDERS_PATH}")
 
 # ========== ЛОГИРОВАНИЕ ==========
 logging.basicConfig(
@@ -145,8 +161,14 @@ def download_file(file, file_name, user_id):
         return None, None
 
 def save_order_to_folder(user_id, username, order_data, files_info):
-    """Сохраняет заказ в папку"""
+    """Сохраняет заказ в папку на компьютере"""
     try:
+        # Проверяем существование папки
+        if not os.path.exists(ORDERS_PATH):
+            os.makedirs(ORDERS_PATH, exist_ok=True)
+            logger.info(f"📁 Папка создана: {ORDERS_PATH}")
+        
+        # Создаем уникальную папку для заказа
         clean_name = re.sub(r'[^\w\s-]', '', username) or f"user_{user_id}"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         order_folder = os.path.join(ORDERS_PATH, f"{clean_name}_{timestamp}")
@@ -156,7 +178,9 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         saved_files = []
         for i, f in enumerate(files_info, 1):
             if os.path.exists(f['path']):
-                new_path = os.path.join(order_folder, f"{i}_{f['name']}")
+                # Очищаем имя файла от недопустимых символов
+                safe_name = re.sub(r'[<>:"/\\|?*]', '', f['name'])
+                new_path = os.path.join(order_folder, f"{i}_{safe_name}")
                 shutil.copy2(f['path'], new_path)
                 saved_files.append(new_path)
                 logger.info(f"📄 Файл {i} скопирован: {new_path}")
@@ -169,10 +193,11 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             f.write(f"ЗАКАЗ ОТ {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
             f.write(f"{'='*50}\n\n")
             f.write(f"Клиент: {order_data['user_info']['first_name']} (@{username})\n")
-            f.write(f"ID: {user_id}\n\n")
+            f.write(f"ID: {user_id}\n")
+            f.write(f"Телефон для связи: {CONTACT_PHONE}\n\n")
             
             if order_data['type'] == 'photo':
-                format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
+                format_names = {"small": "Малый (A6/10x15)", "medium": "Средний (13x18/15x21)", "large": "Большой (A4/21x30)"}
                 f.write(f"Тип: Фото\n")
                 f.write(f"Формат: {format_names[order_data['format']]}\n")
             else:
@@ -181,19 +206,27 @@ def save_order_to_folder(user_id, username, order_data, files_info):
                 f.write(f"Печать: {color_names[order_data['color']]}\n")
             
             f.write(f"Количество копий: {order_data['quantity']}\n")
-            f.write(f"Всего страниц: {order_data['total_pages']}\n")
-            f.write(f"Сумма: {order_data['total']} руб.\n")
-            f.write(f"Срок: {order_data['delivery']}\n\n")
+            f.write(f"Всего страниц в оригинале: {order_data['total_pages']}\n")
+            f.write(f"Сумма к оплате: {order_data['total']} руб.\n")
+            f.write(f"Срок выполнения: {order_data['delivery']}\n\n")
             
-            f.write("ФАЙЛЫ:\n")
+            f.write("ДЕТАЛЬНЫЙ РАСЧЕТ:\n")
             for i, file_info in enumerate(files_info, 1):
                 icon = "📸" if file_info['type'] == 'photo' else "📄"
-                f.write(f"{icon} {i}. {file_info['name']} - {file_info['pages']} стр.\n")
+                f.write(f"{icon} Файл {i}: {file_info['name']}\n")
+                f.write(f"   • Страниц: {file_info['pages']}\n")
+                f.write(f"   • Копий: {order_data['quantity']}\n")
+                if file_info['type'] == 'photo':
+                    f.write(f"   • Цена за копию: {PHOTO_PRICES[order_data['format']][(1,9)][1]} руб.\n")
+                else:
+                    f.write(f"   • Цена за страницу: {DOC_PRICES[order_data['color']][(1,20)][1]} руб.\n")
+                f.write(f"   • Сумма: {order_data['total'] // len(files_info)} руб.\n\n")
         
         logger.info(f"📝 Информация о заказе сохранена в {info_file}")
         return True, order_folder
     except Exception as e:
         logger.error(f"❌ Ошибка сохранения: {e}")
+        logger.error(traceback.format_exc())
         return False, None
 
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
@@ -388,7 +421,7 @@ def button_handler(update, context):
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
                 total_pages += f['pages'] * quantity
-                details += f"📸 Файл {i}: {f['name']}\n"
+                details += f"📸 Файл {i}: {f['name'][:30]}...\n"
                 details += f"   • {f['pages']} стр. × {quantity} копий = {f['pages'] * quantity} стр.\n"
                 details += f"   • {file_total // quantity} руб./копия\n"
                 details += f"   • **{file_total} руб.**\n\n"
@@ -398,7 +431,7 @@ def button_handler(update, context):
                 file_total = calculate_price(price_dict, file_pages)
                 total += file_total
                 total_pages += file_pages
-                details += f"📄 Файл {i}: {f['name']}\n"
+                details += f"📄 Файл {i}: {f['name'][:30]}...\n"
                 details += f"   • {f['pages']} стр. × {quantity} копий = {file_pages} стр.\n"
                 details += f"   • {file_total // file_pages} руб./страница\n"
                 details += f"   • **{file_total} руб.**\n\n"
@@ -417,7 +450,7 @@ def button_handler(update, context):
         
         keyboard = [
             [InlineKeyboardButton("✅ Да, подтвердить заказ", callback_data="confirm"),
-             InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]
+             [InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]]
         ]
         
         query.message.delete()
@@ -510,6 +543,7 @@ def handle_quantity_input(update, context):
         return ENTERING_QUANTITY
     
     # Создаем callback как при нажатии кнопки
+    context.user_data['temp_quantity'] = quantity
     query = type('Query', (), {
         'data': f'qty_{quantity}',
         'from_user': update.effective_user,
@@ -605,6 +639,7 @@ def health():
         "status": "ok", 
         "bot_ready": dispatcher is not None,
         "orders_folder": ORDERS_PATH,
+        "orders_folder_exists": os.path.exists(ORDERS_PATH),
         "timestamp": datetime.now().isoformat()
     })
 
@@ -612,13 +647,17 @@ def health():
 def stats():
     """Статистика заказов"""
     try:
-        orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
+        orders_count = 0
+        if os.path.exists(ORDERS_PATH):
+            orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))])
+        
         return jsonify({
             "status": "ok",
             "orders_count": orders_count,
             "active_sessions": len(user_sessions),
             "bot_ready": dispatcher is not None,
-            "orders_folder": ORDERS_PATH
+            "orders_folder": ORDERS_PATH,
+            "orders_folder_exists": os.path.exists(ORDERS_PATH)
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -627,6 +666,8 @@ def stats():
 def home():
     """Главная страница"""
     current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    orders_exist = os.path.exists(ORDERS_PATH)
+    
     return f"""
     <html>
         <head>
@@ -637,6 +678,8 @@ def home():
                 h1 {{ text-align: center; }}
                 .status {{ background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; }}
                 .info {{ margin: 10px 0; }}
+                .good {{ color: #90EE90; }}
+                .bad {{ color: #FFB6C1; }}
             </style>
         </head>
         <body>
@@ -645,6 +688,7 @@ def home():
                 <div class="status">
                     <h2>✅ Бот работает 24/7!</h2>
                     <p class="info">📁 Папка заказов: <strong>{ORDERS_PATH}</strong></p>
+                    <p class="info">📁 Статус папки: <strong class="{'good' if orders_exist else 'bad'}">{'✅ Доступна' if orders_exist else '❌ Недоступна'}</strong></p>
                     <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
                     <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
                     <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>

@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Премиум дизайн с анимациями
+СУПЕР-ПРЕМИУМ ДИЗАЙН с анимациями и 3D-эффектами
 """
 
 import os
@@ -60,7 +60,7 @@ except Exception as e:
 # ========== ФАЙЛ ДЛЯ ХРАНЕНИЯ ИСТОРИИ ЗАКАЗОВ ==========
 ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
 
-# ========== СТАТУСЫ ЗАКАЗОВ ==========
+# ========== СТАТУСЫ ЗАКАЗОВ С НЕОНОВЫМИ ЦВЕТАМИ ==========
 ORDER_STATUSES = {
     "new": "🆕 Новый",
     "processing": "🔄 В обработке",
@@ -428,10 +428,26 @@ def send_admin_notification(order_data, order_id, order_folder):
     except Exception as e:
         logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
 
-# ========== КРАСИВЫЙ ДИЗАЙН ДЛЯ TELEGRAM ==========
+# ========== СУПЕР-ПРЕМИУМ ДИЗАЙН ДЛЯ TELEGRAM ==========
+
+def create_fancy_header(title, emoji):
+    """Создает красивый заголовок с рамкой"""
+    return (
+        "╔══════════════════════════════════════════════╗\n"
+        f"║   {emoji}  {title.upper()}  {emoji}   ║\n"
+        "╚══════════════════════════════════════════════╝"
+    )
+
+def create_fancy_separator():
+    """Создает красивый разделитель"""
+    return "★ ⋆ ｡ °✩ ✦ ✩° ｡ ⋆ ★"
+
+def create_glowing_text(text):
+    """Создает светящийся текст"""
+    return f"✨ **{text}** ✨"
 
 def start(update, context):
-    """Команда /start с красивым дизайном"""
+    """Команда /start с супер-премиум дизайном"""
     user = update.effective_user
     user_id = user.id
     logger.info(f"✅ /start от {user_id}")
@@ -443,29 +459,31 @@ def start(update, context):
                 shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
     
-    # Красивое приветствие с эмодзи
+    # Супер-премиум приветствие
     welcome = (
+        f"{create_fancy_header('ДОБРО ПОЖАЛОВАТЬ', '✨')}\n\n"
+        f"{create_glowing_text(f'Привет, {user.first_name}!')} 👋\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "✨ **ДОБРО ПОЖАЛОВАТЬ В PRINT BOT** ✨\n"
+        "📸🖨️ **Print Bot Premium**\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👋 Привет, {user.first_name}!\n\n"
-        "📸🖨️ **Я помогу распечатать:**\n"
+        "🎯 **МОИ ВОЗМОЖНОСТИ:**\n"
         "├ 📷 **Фото** (JPG, PNG)\n"
         "├ 📄 **Документы** (PDF, DOC, DOCX)\n"
-        "├ 📦 **Несколько файлов** за раз\n"
-        "└ 💰 **Рассчитаю стоимость**\n\n"
+        "├ 📦 **Пакетная загрузка**\n"
+        "├ 💰 **Мгновенный расчет**\n"
+        "└ 📊 **Отслеживание статуса**\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"📞 **Контакт:** `{CONTACT_PHONE}`\n"
+        f"📞 **Контакты:** `{CONTACT_PHONE}`\n"
         f"🚚 **Доставка:** {DELIVERY_OPTIONS}\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "⬇️ **Отправьте файлы для начала заказа** ⬇️"
+        "⬇️ **Отправьте файлы для начала** ⬇️"
     )
     
     update.message.reply_text(welcome, parse_mode="Markdown")
     return WAITING_FOR_FILE
 
 def process_single_file(update, context):
-    """Обработка одиночного файла с красивым дизайном"""
+    """Обработка одиночного файла с супер-премиум дизайном"""
     user_id = update.effective_user.id
     message = update.message
     
@@ -504,7 +522,14 @@ def process_single_file(update, context):
         elif ext in ['pdf', 'doc', 'docx']:
             file_type = "doc"
         else:
-            message.reply_text("❌ **Ошибка**\n\nНеподдерживаемый формат файла.\nПожалуйста, отправьте JPG, PNG, PDF, DOC или DOCX.")
+            error_msg = (
+                "❌ **Ошибка формата**\n\n"
+                "Неподдерживаемый формат файла.\n\n"
+                "📌 **Допустимые форматы:**\n"
+                "├ 📸 JPG, PNG\n"
+                "├ 📄 PDF, DOC, DOCX"
+            )
+            message.reply_text(error_msg, parse_mode="Markdown")
             return WAITING_FOR_FILE
     elif message.photo:
         file_obj = message.photo[-1]
@@ -546,29 +571,30 @@ def process_single_file(update, context):
     total_photos = user_sessions[user_id]["total_photos"]
     total_pages = user_sessions[user_id]["total_pages"]
     
-    # Красивое сообщение с рамкой
+    # Супер-премиум сообщение
     text = (
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "✅ **ФАЙЛ УСПЕШНО ДОБАВЛЕН!**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        "📊 **ТЕКУЩАЯ СТАТИСТИКА:**\n\n"
+        "╔══════════════════════════════════════════════╗\n"
+        "║         ✅  ФАЙЛ УСПЕШНО ДОБАВЛЕН  ✅       ║\n"
+        "╚══════════════════════════════════════════════╝\n\n"
+        "📊 **ТЕКУЩАЯ СТАТИСТИКА:**\n"
     )
     
     if photo_count > 0:
-        text += f"📸 **Фото:** {photo_count} файлов\n"
+        text += f"├ 📸 **Фото:** {photo_count} файлов\n"
     if doc_count > 0:
-        text += f"📄 **Документы:** {doc_count} файлов\n"
+        text += f"├ 📄 **Документы:** {doc_count} файлов\n"
     
     if total_photos > 0:
-        text += f"📸 **Всего фото:** {total_photos}\n"
+        text += f"├ 📸 **Всего фото:** {total_photos}\n"
     if total_pages > 0:
-        text += f"📄 **Всего страниц:** {total_pages}\n"
+        text += f"├ 📄 **Всего страниц:** {total_pages}\n"
     
-    text += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    text += "└ 📦 **Всего файлов:** {files_count}\n\n"
+    text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
     
     # Предлагаем выбор с красивыми кнопками
     if doc_count > 0:
-        text += "📋 **Выберите тип печати для документов:**"
+        text += "📋 **Выберите тип печати:**"
         keyboard = [
             [InlineKeyboardButton("⚫ ЧЕРНО-БЕЛАЯ", callback_data="doc_bw")],
             [InlineKeyboardButton("🎨 ЦВЕТНАЯ", callback_data="doc_color")],
@@ -576,11 +602,11 @@ def process_single_file(update, context):
             [InlineKeyboardButton("❌ ОТМЕНА", callback_data="cancel")]
         ]
     else:
-        text += "🖼️ **Выберите формат печати для фото:**"
+        text += "🖼️ **Выберите формат печати:**"
         keyboard = [
-            [InlineKeyboardButton("🖼 МАЛЫЙ (A6/10x15)", callback_data="photo_small")],
-            [InlineKeyboardButton("🖼 СРЕДНИЙ (13x18/15x21)", callback_data="photo_medium")],
-            [InlineKeyboardButton("🖼 БОЛЬШОЙ (A4/21x30)", callback_data="photo_large")],
+            [InlineKeyboardButton("🖼 МАЛЫЙ (A6)", callback_data="photo_small")],
+            [InlineKeyboardButton("🖼 СРЕДНИЙ (13x18)", callback_data="photo_medium")],
+            [InlineKeyboardButton("🖼 БОЛЬШОЙ (A4)", callback_data="photo_large")],
             [InlineKeyboardButton("➕ ДОБАВИТЬ ЕЩЕ", callback_data="add_more")],
             [InlineKeyboardButton("❌ ОТМЕНА", callback_data="cancel")]
         ]
@@ -589,7 +615,7 @@ def process_single_file(update, context):
     return WAITING_FOR_FILE
 
 def handle_media_group(update, context):
-    """Обработка группы файлов с красивым дизайном"""
+    """Обработка группы файлов"""
     user_id = update.effective_user.id
     message = update.message
     media_group_id = message.media_group_id
@@ -718,26 +744,27 @@ def process_media_group(user_id, media_group_id, context):
         total_pages = user_sessions[user_id]["total_pages"]
         
         text = (
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"✅ **ЗАГРУЖЕНО {files_count} ФАЙЛОВ!**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "📊 **СТАТИСТИКА:**\n\n"
+            "╔══════════════════════════════════════════════╗\n"
+            f"║      ✅  ЗАГРУЖЕНО {files_count} ФАЙЛОВ  ✅     ║\n"
+            "╚══════════════════════════════════════════════╝\n\n"
+            "📊 **СТАТИСТИКА:**\n"
         )
         if photo_count > 0:
-            text += f"📸 Фото: {photo_count}\n"
+            text += f"├ 📸 Фото: {photo_count}\n"
         if doc_count > 0:
-            text += f"📄 Документы: {doc_count}\n"
+            text += f"├ 📄 Документы: {doc_count}\n"
         
         if total_photos > 0:
-            text += f"📸 Всего фото: {total_photos}\n"
+            text += f"├ 📸 Всего фото: {total_photos}\n"
         if total_pages > 0:
-            text += f"📄 Всего страниц: {total_pages}\n"
+            text += f"├ 📄 Всего страниц: {total_pages}\n"
         
-        text += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        text += "└ 📦 Всего файлов: {files_count}\n\n"
+        text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        # Предлагаем выбор (если есть документы, приоритет у них)
+        # Предлагаем выбор
         if doc_count > 0:
-            text += "📋 **Выберите тип печати для документов:**"
+            text += "📋 **Выберите тип печати:**"
             keyboard = [
                 [InlineKeyboardButton("⚫ ЧЕРНО-БЕЛАЯ", callback_data="doc_bw")],
                 [InlineKeyboardButton("🎨 ЦВЕТНАЯ", callback_data="doc_color")],
@@ -745,11 +772,11 @@ def process_media_group(user_id, media_group_id, context):
                 [InlineKeyboardButton("❌ ОТМЕНА", callback_data="cancel")]
             ]
         else:
-            text += "🖼️ **Выберите формат печати для фото:**"
+            text += "🖼️ **Выберите формат печати:**"
             keyboard = [
-                [InlineKeyboardButton("🖼 МАЛЫЙ (A6/10x15)", callback_data="photo_small")],
-                [InlineKeyboardButton("🖼 СРЕДНИЙ (13x18/15x21)", callback_data="photo_medium")],
-                [InlineKeyboardButton("🖼 БОЛЬШОЙ (A4/21x30)", callback_data="photo_large")],
+                [InlineKeyboardButton("🖼 МАЛЫЙ (A6)", callback_data="photo_small")],
+                [InlineKeyboardButton("🖼 СРЕДНИЙ (13x18)", callback_data="photo_medium")],
+                [InlineKeyboardButton("🖼 БОЛЬШОЙ (A4)", callback_data="photo_large")],
                 [InlineKeyboardButton("➕ ДОБАВИТЬ ЕЩЕ", callback_data="add_more")],
                 [InlineKeyboardButton("❌ ОТМЕНА", callback_data="cancel")]
             ]
@@ -766,7 +793,7 @@ def process_media_group(user_id, media_group_id, context):
         logger.error(traceback.format_exc())
 
 def button_handler(update, context):
-    """Обработка нажатий кнопок с красивым дизайном"""
+    """Обработка нажатий кнопок с супер-премиум дизайном"""
     query = update.callback_query
     query.answer()
     user_id = query.from_user.id
@@ -780,9 +807,9 @@ def button_handler(update, context):
     
     if data == "add_more":
         query.edit_message_text(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "📤 **ДОБАВЬТЕ ЕЩЕ ФАЙЛЫ**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "╔══════════════════════════════════════════════╗\n"
+            "║         📤  ДОБАВЬТЕ ЕЩЕ ФАЙЛЫ  📤        ║\n"
+            "╚══════════════════════════════════════════════╝\n\n"
             "Отправьте следующие файлы для печати:",
             parse_mode="Markdown"
         )
@@ -799,9 +826,9 @@ def button_handler(update, context):
             del user_sessions[user_id]
         
         query.edit_message_text(
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            "🔄 **НОВЫЙ ЗАКАЗ**\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "╔══════════════════════════════════════════════╗\n"
+            "║         🔄  НОВЫЙ ЗАКАЗ  🔄                ║\n"
+            "╚══════════════════════════════════════════════╝\n\n"
             "Отправьте файлы для печати (JPG, PNG, PDF, DOC, DOCX):",
             parse_mode="Markdown"
         )
@@ -814,21 +841,21 @@ def button_handler(update, context):
         format_type = data.split("_")[1]
         format_names = {"small": "Малый (A6/10x15)", "medium": "Средний (13x18/15x21)", "large": "Большой (A4/21x30)"}
         format_prices = {
-            "small": "1-9 шт: 35₽/шт\n10-50 шт: 28₽/шт\n51-100 шт: 23₽/шт\n101+ шт: 18₽/шт",
-            "medium": "1-9 шт: 65₽/шт\n10-50 шт: 55₽/шт\n51-100 шт: 45₽/шт\n101+ шт: 35₽/шт",
-            "large": "1-4 шт: 200₽/шт\n5-20 шт: 170₽/шт\n21-50 шт: 150₽/шт\n51+ шт: 120₽/шт"
+            "small": "1-9: 35₽ | 10-50: 28₽ | 51-100: 23₽ | 101+: 18₽",
+            "medium": "1-9: 65₽ | 10-50: 55₽ | 51-100: 45₽ | 101+: 35₽",
+            "large": "1-4: 200₽ | 5-20: 170₽ | 21-50: 150₽ | 51+: 120₽"
         }
         
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = format_type
         
         text = (
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"🖼️ **ВЫБРАН ФОРМАТ:** {format_names[format_type]}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "╔══════════════════════════════════════════════╗\n"
+            f"║      🖼️  {format_names[format_type].upper()}  🖼️     ║\n"
+            "╚══════════════════════════════════════════════╝\n\n"
             f"💰 **Цены:**\n{format_prices[format_type]}\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "🔢 **Сколько копий каждого фото напечатать?**\n\n"
+            "🔢 **Сколько копий напечатать?**\n\n"
             "Введите число или выберите из вариантов ниже:"
         )
         
@@ -846,8 +873,8 @@ def button_handler(update, context):
         doc_type = data.split("_")[1]
         color_names = {"bw": "Черно-белая", "color": "Цветная"}
         color_prices = {
-            "bw": "1-20 листов: 25₽/лист\n21-100 листов: 18₽/лист\n101-300 листов: 14₽/лист\n301+ листов: 10₽/лист",
-            "color": "1-20 листов: 50₽/лист\n21-100 листов: 35₽/лист\n101-300 листов: 25₽/лист\n301+ листов: 20₽/лист"
+            "bw": "1-20: 25₽ | 21-100: 18₽ | 101-300: 14₽ | 301+: 10₽",
+            "color": "1-20: 50₽ | 21-100: 35₽ | 101-300: 25₽ | 301+: 20₽"
         }
         
         user_sessions[user_id]["type"] = "doc"
@@ -858,15 +885,16 @@ def button_handler(update, context):
         total_items = total_photos + total_pages
         
         text = (
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📄 **ВЫБРАНА ПЕЧАТЬ:** {color_names[doc_type]}\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "╔══════════════════════════════════════════════╗\n"
+            f"║      📄  {color_names[doc_type].upper()}  📄      ║\n"
+            "╚══════════════════════════════════════════════╝\n\n"
             f"💰 **Цены:**\n{color_prices[doc_type]}\n\n"
-            f"📊 **В файлах всего:** {total_items} единиц\n"
+            f"📊 **В файлах:**\n"
             f"├ 📸 Фото: {total_photos}\n"
-            f"└ 📄 Страниц: {total_pages}\n\n"
+            f"└ 📄 Страниц: {total_pages}\n"
+            f"Всего: {total_items} ед.\n\n"
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-            "🔢 **Сколько копий каждого документа напечатать?**\n\n"
+            "🔢 **Сколько копий напечатать?**\n\n"
             "Введите число или выберите из вариантов ниже:"
         )
         
@@ -904,19 +932,17 @@ def button_handler(update, context):
                 price_dict = PHOTO_PRICES[session["format"]]
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
-                details += f"📸 **Файл {i}:** `{f['name'][:30]}...`\n"
-                details += f"   • {f['items']} фото × {quantity} копий = {f['items'] * quantity} фото\n"
-                details += f"   • {file_total // quantity} руб./копия\n"
-                details += f"   • **Итого: {file_total} руб.**\n\n"
+                details += f"📸 **Файл {i}:**\n"
+                details += f"   ├ {f['items']} фото × {quantity} коп. = {f['items'] * quantity} фото\n"
+                details += f"   └ {file_total // quantity} руб./копия → **{file_total} руб.**\n\n"
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
-                details += f"📄 **Файл {i}:** `{f['name'][:30]}...`\n"
-                details += f"   • {f['items']} стр. × {quantity} копий = {file_items} стр.\n"
-                details += f"   • {file_total // file_items} руб./стр.\n"
-                details += f"   • **Итого: {file_total} руб.**\n\n"
+                details += f"📄 **Файл {i}:**\n"
+                details += f"   ├ {f['items']} стр. × {quantity} коп. = {file_items} стр.\n"
+                details += f"   └ {file_total // file_items} руб./стр. → **{file_total} руб.**\n\n"
         
         session["total"] = total
         session["total_photos"] = total_photos_result
@@ -924,8 +950,9 @@ def button_handler(update, context):
         session["delivery"] = estimate_delivery_time(total_photos_result + total_pages_result)
         
         text = f"{details}\n"
-        text += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-        text += "📋 **ПРОВЕРЬТЕ ЗАКАЗ:**\n\n"
+        text += "╔══════════════════════════════════════════════╗\n"
+        text += "║         📋  ПРОВЕРЬТЕ ЗАКАЗ  📋           ║\n"
+        text += "╚══════════════════════════════════════════════╝\n\n"
         text += f"📦 Всего файлов: {len(files)}\n"
         if total_photos_result > 0:
             text += f"📸 Всего фото к печати: {total_photos_result}\n"
@@ -973,11 +1000,11 @@ def button_handler(update, context):
             total_photos = sum(f['items'] for f in photo_files)
             total_pages = sum(f['items'] for f in doc_files)
             
-            # Красивое сообщение об успешном заказе
+            # Супер-премиум сообщение об успешном заказе
             client_message = (
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "╔══════════════════════════════════════════════╗\n"
+                "║     ✅  ЗАКАЗ УСПЕШНО ОФОРМЛЕН!  ✅       ║\n"
+                "╚══════════════════════════════════════════════╝\n\n"
                 f"🆔 **Номер заказа:** `{order_id}`\n"
                 f"👤 **Заказчик:** {session['user_info']['first_name']}\n"
                 f"📦 **Файлов:** {len(session['files'])}\n\n"
@@ -997,7 +1024,7 @@ def button_handler(update, context):
                 f"📞 **Контактный телефон:** `{CONTACT_PHONE}`\n"
                 f"🚚 **Способы получения:** {DELIVERY_OPTIONS}\n\n"
                 "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"📌 **Статус вашего заказа:** {get_status_display('new')}\n"
+                f"📌 **Статус заказа:** {get_status_display('new')}\n"
                 "Вы будете получать уведомления при изменении статуса.\n\n"
                 "✨ **Спасибо за заказ!** ✨"
             )
@@ -1034,7 +1061,7 @@ def button_handler(update, context):
         else:
             context.bot.send_message(
                 chat_id=user_id,
-                text="❌ **Ошибка**\n\nНе удалось сохранить заказ. Пожалуйста, попробуйте еще раз."
+                text="❌ **Ошибка**\n\nНе удалось сохранить заказ."
             )
         
         # Очищаем временные файлы
@@ -1072,9 +1099,9 @@ def cancel_order(user_id, query=None, context=None):
     
     # Отправляем или редактируем сообщение
     message = (
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "❌ **ЗАКАЗ ОТМЕНЁН**\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "╔══════════════════════════════════════════════╗\n"
+        "║           ❌  ЗАКАЗ ОТМЕНЁН  ❌              ║\n"
+        "╚══════════════════════════════════════════════╝\n\n"
         "Все загруженные файлы удалены.\n\n"
         "✨ **Хотите оформить новый заказ?** ✨"
     )
@@ -1113,7 +1140,7 @@ def handle_file(update, context):
     return process_single_file(update, context)
 
 def get_quantity_keyboard():
-    """Клавиатура выбора количества с красивым дизайном"""
+    """Клавиатура выбора количества с красивыми кнопками"""
     keyboard = [
         [InlineKeyboardButton("1️⃣", callback_data="qty_1"), 
          InlineKeyboardButton("2️⃣", callback_data="qty_2"),
@@ -1157,13 +1184,13 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
-# ========== ВЕБ-ИНТЕРФЕЙС С КРАСИВЫМ ДИЗАЙНОМ ==========
+# ========== СУПЕР-ПРЕМИУМ ВЕБ-ИНТЕРФЕЙС ==========
 app = Flask(__name__)
 
-# Красивый CSS с анимациями
+# Супер-премиум CSS с анимациями и 3D-эффектами
 PREMIUM_CSS = """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
     
     * {
         margin: 0;
@@ -1172,10 +1199,18 @@ PREMIUM_CSS = """
     }
     
     body {
-        font-family: 'Inter', sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        font-family: 'Poppins', sans-serif;
+        background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+        background-size: 400% 400%;
+        animation: gradientBG 15s ease infinite;
         min-height: 100vh;
         padding: 20px;
+    }
+    
+    @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
     }
     
     .container {
@@ -1183,174 +1218,345 @@ PREMIUM_CSS = """
         margin: 0 auto;
     }
     
-    /* Премиум карточка */
+    /* 3D-карточка */
     .premium-card {
         background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 30px;
-        padding: 30px;
-        margin-bottom: 30px;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
-    }
-    
-    /* Заголовки */
-    h1, h2, h3 {
-        color: white;
-        margin-bottom: 20px;
-    }
-    
-    /* Кнопки */
-    .btn {
-        background: rgba(255, 255, 255, 0.15);
-        backdrop-filter: blur(10px);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 12px 25px;
+        backdrop-filter: blur(20px);
         border-radius: 50px;
-        text-decoration: none;
-        font-weight: 500;
+        padding: 40px;
+        margin-bottom: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 
+            0 30px 60px -20px rgba(0, 0, 0, 0.5),
+            inset 0 1px 1px rgba(255, 255, 255, 0.6),
+            inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+        transform: perspective(1000px) rotateX(1deg);
+        transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        animation: float 6s ease-in-out infinite;
+    }
+    
+    .premium-card:hover {
+        transform: perspective(1000px) rotateX(2deg) translateY(-10px);
+        box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.7);
+    }
+    
+    @keyframes float {
+        0%, 100% { transform: perspective(1000px) rotateX(1deg) translateY(0); }
+        50% { transform: perspective(1000px) rotateX(1.5deg) translateY(-10px); }
+    }
+    
+    /* Неоновый текст */
+    .neon-text {
+        font-size: 3.5em;
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 
+            0 0 10px #fff,
+            0 0 20px #fff,
+            0 0 40px #fff,
+            0 0 80px #0ff,
+            0 0 120px #0ff,
+            0 0 200px #0ff,
+            0 0 300px #0ff,
+            0 0 400px #0ff;
+        animation: neonPulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes neonPulse {
+        0%, 100% { text-shadow: 0 0 10px #fff, 0 0 20px #fff, 0 0 40px #fff, 0 0 80px #0ff; }
+        50% { text-shadow: 0 0 20px #fff, 0 0 40px #fff, 0 0 80px #fff, 0 0 160px #f0f; }
+    }
+    
+    /* Светящиеся кнопки */
+    .glow-btn {
+        background: linear-gradient(45deg, #ff6b6b, #feca57, #48dbfb, #1dd1a1);
+        background-size: 300% 300%;
+        color: white;
+        border: none;
+        padding: 15px 30px;
+        border-radius: 50px;
+        font-weight: 600;
+        font-size: 1.1em;
+        cursor: pointer;
         transition: all 0.3s;
-        display: inline-block;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        animation: gradientShift 3s ease infinite;
     }
     
-    .btn:hover {
-        background: rgba(255, 255, 255, 0.25);
-        transform: translateY(-2px);
+    .glow-btn::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+        opacity: 0;
+        transition: opacity 0.5s;
     }
     
-    /* Карточки заказов */
+    .glow-btn:hover::before {
+        opacity: 1;
+    }
+    
+    .glow-btn:hover {
+        transform: scale(1.1) rotate(2deg);
+        box-shadow: 0 0 40px rgba(255, 255, 255, 0.8);
+    }
+    
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    /* Карточки заказов с 3D-эффектом */
     .order-card {
         background: white;
-        border-radius: 20px;
+        border-radius: 40px;
         overflow: hidden;
-        margin-bottom: 20px;
-        box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.3);
+        margin-bottom: 30px;
+        box-shadow: 
+            0 30px 60px -20px rgba(0, 0, 0, 0.4),
+            inset 0 -2px 0 rgba(0, 0, 0, 0.1);
+        transform: perspective(1000px) rotateX(0deg);
+        transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+    }
+    
+    .order-card:hover {
+        transform: perspective(1000px) rotateX(2deg) translateY(-15px) scale(1.02);
+        box-shadow: 0 50px 100px -30px rgba(0, 0, 0, 0.6);
+    }
+    
+    .order-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+        transition: left 0.7s;
+    }
+    
+    .order-card:hover::before {
+        left: 100%;
     }
     
     .order-header {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
-        padding: 20px;
+        padding: 30px;
+        position: relative;
+        overflow: hidden;
     }
     
-    .order-content {
-        padding: 20px;
+    .order-header::after {
+        content: '';
+        position: absolute;
+        top: -50%;
+        right: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
+        animation: rotate 10s linear infinite;
     }
     
-    /* Статусы */
+    @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    /* Статус бейджи с неоновым эффектом */
     .status-badge {
         display: inline-block;
-        padding: 5px 12px;
+        padding: 8px 20px;
         border-radius: 50px;
+        font-weight: 600;
         font-size: 0.9em;
-        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        position: relative;
+        overflow: hidden;
     }
     
-    .status-new { background: #e3f2fd; color: #1976d2; }
-    .status-processing { background: #fff3e0; color: #f57c00; }
-    .status-printing { background: #e8f5e8; color: #388e3c; }
-    .status-ready { background: #e8e8f5; color: #5e35b1; }
-    .status-shipped { background: #f3e5f5; color: #8e24aa; }
-    .status-delivered { background: #e8f0fe; color: #1565c0; }
-    .status-cancelled { background: #ffebee; color: #c62828; }
-    
-    /* Кнопки статусов */
-    .status-btn {
-        padding: 8px 15px;
-        border: none;
-        border-radius: 50px;
-        cursor: pointer;
-        font-size: 0.9em;
-        margin: 3px;
-        transition: all 0.3s;
+    .status-new {
+        background: #4CAF50;
+        color: white;
+        box-shadow: 0 0 20px #4CAF50;
     }
     
-    .status-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    .status-processing {
+        background: #FF9800;
+        color: white;
+        box-shadow: 0 0 20px #FF9800;
     }
     
-    /* Фото галерея */
+    .status-printing {
+        background: #2196F3;
+        color: white;
+        box-shadow: 0 0 20px #2196F3;
+    }
+    
+    .status-ready {
+        background: #9C27B0;
+        color: white;
+        box-shadow: 0 0 20px #9C27B0;
+    }
+    
+    .status-shipped {
+        background: #3F51B5;
+        color: white;
+        box-shadow: 0 0 20px #3F51B5;
+    }
+    
+    .status-delivered {
+        background: #009688;
+        color: white;
+        box-shadow: 0 0 20px #009688;
+    }
+    
+    .status-cancelled {
+        background: #f44336;
+        color: white;
+        box-shadow: 0 0 20px #f44336;
+    }
+    
+    /* Галерея фото с 3D-эффектом */
     .photo-gallery {
         display: flex;
-        gap: 10px;
+        gap: 20px;
         overflow-x: auto;
-        padding: 10px 0;
+        padding: 20px 0;
+        scrollbar-width: thin;
+        scrollbar-color: #667eea #f0f0f0;
+    }
+    
+    .photo-gallery::-webkit-scrollbar {
+        height: 8px;
+    }
+    
+    .photo-gallery::-webkit-scrollbar-track {
+        background: rgba(255,255,255,0.1);
+        border-radius: 10px;
+    }
+    
+    .photo-gallery::-webkit-scrollbar-thumb {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-radius: 10px;
     }
     
     .photo-preview {
-        width: 80px;
-        height: 80px;
+        width: 150px;
+        height: 150px;
         object-fit: cover;
-        border-radius: 10px;
+        border-radius: 30px;
         cursor: pointer;
-        transition: all 0.3s;
-        border: 2px solid white;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 4px solid white;
+        box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.4);
+        transform: perspective(500px) rotateY(0deg);
     }
     
     .photo-preview:hover {
-        transform: scale(1.1);
-    }
-    
-    /* Файлы */
-    .file-item {
-        display: flex;
-        align-items: center;
-        padding: 10px;
-        background: #f8f9fa;
-        border-radius: 10px;
-        margin-bottom: 5px;
-    }
-    
-    .file-name {
-        flex: 1;
-        word-break: break-all;
-    }
-    
-    .file-download {
-        color: #667eea;
-        text-decoration: none;
-        padding: 5px 10px;
+        transform: perspective(500px) rotateY(10deg) scale(1.1);
+        box-shadow: 0 30px 60px -10px rgba(0, 0, 0, 0.6);
     }
     
     /* Статистика */
     .stats-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 20px;
-        margin-bottom: 30px;
+        gap: 30px;
+        margin-bottom: 40px;
     }
     
     .stat-card {
         background: rgba(255, 255, 255, 0.15);
         backdrop-filter: blur(10px);
-        border-radius: 20px;
-        padding: 20px;
+        border-radius: 40px;
+        padding: 30px;
         text-align: center;
         color: white;
-        border: 1px solid rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.3);
+        transform: translateY(0);
+        transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .stat-card:hover {
+        transform: translateY(-15px) scale(1.05);
+        box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5);
+    }
+    
+    .stat-icon {
+        font-size: 4em;
+        margin-bottom: 20px;
+        animation: bounce 2s ease-in-out infinite;
+    }
+    
+    @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-15px); }
+    }
+    
+    .stat-value {
+        font-size: 3em;
+        font-weight: 800;
+        margin-bottom: 10px;
+        text-shadow: 0 0 20px rgba(255,255,255,0.5);
+    }
+    
+    .stat-label {
+        font-size: 1.1em;
+        opacity: 0.9;
+        text-transform: uppercase;
+        letter-spacing: 2px;
     }
     
     /* Пустое состояние */
     .empty-state {
         text-align: center;
-        padding: 60px;
+        padding: 100px;
         background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border-radius: 30px;
+        backdrop-filter: blur(20px);
+        border-radius: 60px;
         color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        animation: pulse 3s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.02); }
+    }
+    
+    .empty-icon {
+        font-size: 8em;
+        margin-bottom: 30px;
+        animation: float 3s ease-in-out infinite;
     }
     
     /* Адаптивность */
     @media (max-width: 768px) {
         .premium-card {
-            padding: 20px;
+            padding: 25px;
+        }
+        
+        .neon-text {
+            font-size: 2.5em;
         }
         
         .stats-grid {
             grid-template-columns: 1fr;
+        }
+        
+        .photo-preview {
+            width: 100px;
+            height: 100px;
         }
     }
 </style>
@@ -1358,517 +1564,5 @@ PREMIUM_CSS = """
 
 @app.route('/')
 def home():
-    """Главная страница"""
-    orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
-    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Print Bot - Главная</title>
-        <meta charset="utf-8">
-        {PREMIUM_CSS}
-    </head>
-    <body>
-        <div class="container">
-            <div class="premium-card" style="text-align: center;">
-                <h1 style="font-size: 3em;">🤖 Print Bot</h1>
-                <p style="color: rgba(255,255,255,0.9); font-size: 1.2em; margin-bottom: 30px;">
-                    Премиум сервис для печати фото и документов
-                </p>
-                
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div style="font-size: 3em; margin-bottom: 10px;">📦</div>
-                        <div style="font-size: 2em; font-weight: bold;">{orders_count}</div>
-                        <div>заказов</div>
-                    </div>
-                    <div class="stat-card">
-                        <div style="font-size: 3em; margin-bottom: 10px;">⏰</div>
-                        <div style="font-size: 2em; font-weight: bold;">24/7</div>
-                        <div>работа</div>
-                    </div>
-                    <div class="stat-card">
-                        <div style="font-size: 3em; margin-bottom: 10px;">⚡</div>
-                        <div style="font-size: 2em; font-weight: bold;">1-3</div>
-                        <div>дня</div>
-                    </div>
-                </div>
-                
-                <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
-                    <a href="/orders/" class="btn">📦 Заказы</a>
-                    <a href="/stats" class="btn">📊 Статистика</a>
-                    <a href="/health" class="btn">❤️ Здоровье</a>
-                </div>
-                
-                <div style="margin-top: 30px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 15px;">
-                    <p>📞 {CONTACT_PHONE} | 🚚 {DELIVERY_OPTIONS} | ⏰ {current_time}</p>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html
-
-@app.route('/orders/')
-def list_orders():
-    """Список заказов"""
-    try:
-        orders = []
-        total_files = 0
-        
-        if os.path.exists(ORDERS_PATH):
-            for item in sorted(os.listdir(ORDERS_PATH), reverse=True):
-                item_path = os.path.join(ORDERS_PATH, item)
-                if os.path.isdir(item_path) and item != "orders_history.json":
-                    # Получаем информацию о заказе
-                    info_file = os.path.join(item_path, "информация_о_заказе.txt")
-                    info_text = ""
-                    if os.path.exists(info_file):
-                        with open(info_file, 'r', encoding='utf-8') as f:
-                            info_text = f.read()
-                    
-                    # Ищем статус в истории
-                    status = "new"
-                    history = load_orders_history()
-                    for h in history:
-                        if h.get('order_id') == item:
-                            status = h.get('status', 'new')
-                            break
-                    
-                    # Список файлов
-                    files = []
-                    photos = []
-                    total_size = 0
-                    file_count = 0
-                    
-                    for f in os.listdir(item_path):
-                        if f != "информация_о_заказе.txt":
-                            file_path = os.path.join(item_path, f)
-                            file_size = os.path.getsize(file_path)
-                            total_size += file_size
-                            file_count += 1
-                            total_files += 1
-                            is_photo = f.lower().endswith(('.jpg', '.jpeg', '.png'))
-                            
-                            file_info = {
-                                'name': f,
-                                'size': file_size,
-                                'size_formatted': format_file_size(file_size),
-                                'url': f'/orders/{item}/{f}',
-                                'is_photo': is_photo
-                            }
-                            files.append(file_info)
-                            
-                            if is_photo:
-                                photos.append(file_info)
-                    
-                    # Получаем время создания
-                    created = datetime.fromtimestamp(os.path.getctime(item_path))
-                    age = datetime.now() - created
-                    
-                    orders.append({
-                        'id': item,
-                        'name': item,
-                        'info': info_text,
-                        'files': files,
-                        'photos': photos[:5],
-                        'file_count': file_count,
-                        'total_size': format_file_size(total_size),
-                        'created': created.strftime('%d.%m.%Y %H:%M'),
-                        'age_days': age.days,
-                        'status': status
-                    })
-        
-        orders.sort(key=lambda x: x['created'], reverse=True)
-        
-        # Генерируем HTML
-        orders_html = ""
-        for order in orders:
-            status_class = f"status-{order['status']}"
-            status_text = get_status_display(order['status'])
-            
-            photos_html = ""
-            for photo in order['photos']:
-                photos_html += f'<img src="{photo["url"]}" class="photo-preview" onclick="window.open(\'{photo["url"]}\')">'
-            
-            files_html = ""
-            for file in order['files']:
-                files_html += f'''
-                <div class="file-item">
-                    <span style="font-size: 1.5em; margin-right: 10px;">{"📸" if file["is_photo"] else "📄"}</span>
-                    <span class="file-name">{file['name']} ({file['size_formatted']})</span>
-                    <a href="{file['url']}" class="file-download" download>⬇️</a>
-                </div>
-                '''
-            
-            orders_html += f'''
-            <div class="order-card">
-                <div class="order-header">
-                    <h3>{order['id']}</h3>
-                    <p>📅 {order['created']}</p>
-                    <span class="status-badge {status_class}">{status_text}</span>
-                </div>
-                <div class="order-content">
-                    <div style="margin-bottom: 15px;">
-                        <strong>📦 Файлов:</strong> {order['file_count']} | 
-                        <strong>💾 Объем:</strong> {order['total_size']} | 
-                        <strong>⏱️ Возраст:</strong> {order['age_days']} дн.
-                    </div>
-                    
-                    <div style="margin-bottom: 15px;">
-                        <h4>📌 Изменить статус:</h4>
-                        <button class="status-btn status-new" onclick="updateStatus('{order['id']}', 'new')">🆕 Новый</button>
-                        <button class="status-btn status-processing" onclick="updateStatus('{order['id']}', 'processing')">🔄 В обработке</button>
-                        <button class="status-btn status-printing" onclick="updateStatus('{order['id']}', 'printing')">🖨️ В печати</button>
-                        <button class="status-btn status-ready" onclick="updateStatus('{order['id']}', 'ready')">✅ Готов</button>
-                        <button class="status-btn status-shipped" onclick="updateStatus('{order['id']}', 'shipped')">📦 Отправлен</button>
-                        <button class="status-btn status-delivered" onclick="updateStatus('{order['id']}', 'delivered')">🏁 Доставлен</button>
-                        <button class="status-btn status-cancelled" onclick="updateStatus('{order['id']}', 'cancelled')">❌ Отменен</button>
-                    </div>
-                    
-                    {f'<div class="photo-gallery">{photos_html}</div>' if photos_html else ''}
-                    
-                    <div style="margin: 15px 0;">
-                        {files_html}
-                    </div>
-                    
-                    <div style="display: flex; gap: 10px;">
-                        <a href="/orders/{order['id']}/" class="btn">👁️ Подробнее</a>
-                        <a href="/orders/{order['id']}/download" class="btn" style="background: #28a745;">⬇️ Скачать все</a>
-                    </div>
-                </div>
-            </div>
-            '''
-        
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Print Bot - Заказы</title>
-            <meta charset="utf-8">
-            {PREMIUM_CSS}
-            <script>
-                function updateStatus(orderId, status) {{
-                    fetch(`/orders/${{orderId}}/status`, {{
-                        method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{status: status}})
-                    }})
-                    .then(r => r.json())
-                    .then(d => {{ if(d.success) location.reload(); else alert('Ошибка: ' + d.error); }});
-                }}
-            </script>
-        </head>
-        <body>
-            <div class="container">
-                <div class="premium-card">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                        <h1>📦 Заказы</h1>
-                        <div>
-                            <a href="/" class="btn">🏠 Главная</a>
-                            <a href="/stats" class="btn">📊 Статистика</a>
-                        </div>
-                    </div>
-                    <p>Всего заказов: {len(orders)} | Файлов: {total_files}</p>
-                </div>
-                
-                {orders_html if orders_html else '<div class="empty-state"><h2>📭 Заказов пока нет</h2><p>Отправьте файлы в Telegram бот</p></div>'}
-            </div>
-        </body>
-        </html>
-        """
-        return html
-    except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        return str(e), 500
-
-@app.route('/orders/<path:order_id>/')
-def view_order(order_id):
-    """Просмотр заказа"""
-    try:
-        order_path = os.path.join(ORDERS_PATH, order_id)
-        if not os.path.exists(order_path):
-            return "Заказ не найден", 404
-        
-        info_file = os.path.join(order_path, "информация_о_заказе.txt")
-        info_text = ""
-        if os.path.exists(info_file):
-            with open(info_file, 'r', encoding='utf-8') as f:
-                info_text = f.read()
-        
-        status = "new"
-        history = load_orders_history()
-        for h in history:
-            if h.get('order_id') == order_id:
-                status = h.get('status', 'new')
-                break
-        
-        files = []
-        photos = []
-        total_size = 0
-        file_count = 0
-        
-        for f in sorted(os.listdir(order_path)):
-            if f != "информация_о_заказе.txt":
-                file_path = os.path.join(order_path, f)
-                file_size = os.path.getsize(file_path)
-                total_size += file_size
-                file_count += 1
-                is_photo = f.lower().endswith(('.jpg', '.jpeg', '.png'))
-                
-                file_info = {
-                    'name': f,
-                    'size': file_size,
-                    'size_formatted': format_file_size(file_size),
-                    'url': f'/orders/{order_id}/{f}',
-                    'is_photo': is_photo
-                }
-                files.append(file_info)
-                if is_photo:
-                    photos.append(file_info)
-        
-        created = datetime.fromtimestamp(os.path.getctime(order_path)).strftime('%d.%m.%Y %H:%M')
-        
-        photos_html = ""
-        for photo in photos:
-            photos_html += f'<img src="{photo["url"]}" style="width:100px; height:100px; object-fit:cover; border-radius:10px; cursor:pointer;" onclick="window.open(\'{photo["url"]}\')">'
-        
-        files_html = ""
-        for file in files:
-            files_html += f'''
-            <div style="display: flex; align-items: center; padding: 10px; background: #f8f9fa; border-radius: 10px; margin-bottom: 5px;">
-                <span style="font-size: 1.5em; margin-right: 10px;">{"📸" if file["is_photo"] else "📄"}</span>
-                <span style="flex:1;">{file['name']} ({file['size_formatted']})</span>
-                <a href="{file['url']}" class="btn" download>⬇️</a>
-            </div>
-            '''
-        
-        html = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Print Bot - Заказ {order_id}</title>
-            <meta charset="utf-8">
-            {PREMIUM_CSS}
-            <script>
-                function updateStatus(status) {{
-                    fetch('/orders/{order_id}/status', {{
-                        method: 'POST',
-                        headers: {{'Content-Type': 'application/json'}},
-                        body: JSON.stringify({{status: status}})
-                    }})
-                    .then(r => r.json())
-                    .then(d => {{ if(d.success) location.reload(); else alert('Ошибка: ' + d.error); }});
-                }}
-            </script>
-        </head>
-        <body>
-            <div class="container">
-                <div class="premium-card">
-                    <a href="/orders/" class="btn">← К списку</a>
-                    <h1 style="margin-top: 20px;">📁 Заказ {order_id}</h1>
-                    <p>Создан: {created} | Файлов: {file_count} | Объем: {format_file_size(total_size)}</p>
-                </div>
-                
-                <div class="premium-card">
-                    <h2>📌 Статус: {get_status_display(status)}</h2>
-                    <div style="margin-top: 15px;">
-                        <button class="status-btn status-new" onclick="updateStatus('new')">🆕 Новый</button>
-                        <button class="status-btn status-processing" onclick="updateStatus('processing')">🔄 В обработке</button>
-                        <button class="status-btn status-printing" onclick="updateStatus('printing')">🖨️ В печати</button>
-                        <button class="status-btn status-ready" onclick="updateStatus('ready')">✅ Готов</button>
-                        <button class="status-btn status-shipped" onclick="updateStatus('shipped')">📦 Отправлен</button>
-                        <button class="status-btn status-delivered" onclick="updateStatus('delivered')">🏁 Доставлен</button>
-                        <button class="status-btn status-cancelled" onclick="updateStatus('cancelled')">❌ Отменен</button>
-                    </div>
-                </div>
-                
-                <div class="premium-card">
-                    <h2>📋 Информация</h2>
-                    <pre style="white-space: pre-wrap; background: #f8f9fa; padding: 20px; border-radius: 10px;">{info_text}</pre>
-                </div>
-                
-                {f'<div class="premium-card"><h2>📸 Фото</h2><div style="display: flex; gap: 10px;">{photos_html}</div></div>' if photos_html else ''}
-                
-                <div class="premium-card">
-                    <h2>📄 Файлы</h2>
-                    {files_html}
-                    <a href="/orders/{order_id}/download" class="btn" style="margin-top: 20px; background: #28a745;">⬇️ Скачать все</a>
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        return html
-    except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        return str(e), 500
-
-@app.route('/orders/<path:order_id>/status', methods=['POST'])
-def update_order_status_route(order_id):
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"success": False, "error": "Нет данных"}), 400
-        new_status = data.get('status')
-        if not new_status:
-            return jsonify({"success": False, "error": "Не указан статус"}), 400
-        success = update_order_status(order_id, new_status)
-        return jsonify({"success": success})
-    except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
-
-@app.route('/orders/<path:order_id>/download')
-def download_all_files(order_id):
-    try:
-        order_path = os.path.join(ORDERS_PATH, order_id)
-        if not os.path.exists(order_path):
-            return "Заказ не найден", 404
-        temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
-        with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
-            for root, dirs, files in os.walk(order_path):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, order_path)
-                    zipf.write(file_path, arcname)
-        return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_id}.zip")
-    except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        return f"Ошибка: {e}", 500
-
-@app.route('/orders/<path:order_id>/<filename>')
-def download_order_file(order_id, filename):
-    try:
-        order_path = os.path.join(ORDERS_PATH, order_id)
-        return send_from_directory(order_path, filename, as_attachment=True)
-    except Exception as e:
-        logger.error(f"Ошибка: {e}")
-        return f"Ошибка: {e}", 500
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    global dispatcher
-    try:
-        if dispatcher is None:
-            return jsonify({"error": "Dispatcher not initialized"}), 500
-        update_data = request.get_json()
-        if update_data:
-            logger.info(f"📩 Обновление: {update_data.get('update_id')}")
-            update = telegram.Update.de_json(update_data, bot)
-            dispatcher.process_update(update)
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"❌ Ошибка: {e}")
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/health')
-def health():
-    return jsonify({
-        "status": "ok", 
-        "bot_ready": dispatcher is not None,
-        "timestamp": datetime.now().isoformat()
-    })
-
-@app.route('/stats')
-def stats():
-    orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
-    active_sessions = len(user_sessions)
-    
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Print Bot - Статистика</title>
-        <meta charset="utf-8">
-        {PREMIUM_CSS}
-    </head>
-    <body>
-        <div class="container">
-            <div class="premium-card">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h1>📊 Статистика</h1>
-                    <a href="/" class="btn">🏠 Главная</a>
-                </div>
-                
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div style="font-size: 3em;">📦</div>
-                        <div style="font-size: 2em; font-weight: bold;">{orders_count}</div>
-                        <div>активных заказов</div>
-                    </div>
-                    <div class="stat-card">
-                        <div style="font-size: 3em;">👥</div>
-                        <div style="font-size: 2em; font-weight: bold;">{active_sessions}</div>
-                        <div>активных сессий</div>
-                    </div>
-                    <div class="stat-card">
-                        <div style="font-size: 3em;">✅</div>
-                        <div style="font-size: 2em; font-weight: bold;">{len(load_orders_history())}</div>
-                        <div>всего заказов</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-    """
-    return html
-
-# ========== ИНИЦИАЛИЗАЦИЯ ==========
-print("=" * 60)
-print("🚀 ЗАПУСК БОТА С ПРЕМИУМ ДИЗАЙНОМ")
-print("=" * 60)
-print(f"📁 Папка для заказов: {ORDERS_PATH}")
-print(f"👤 ID администратора: {ADMIN_CHAT_ID}")
-
-bot = telegram.Bot(token=TOKEN)
-updater = Updater(token=TOKEN, use_context=True)
-dispatcher = updater.dispatcher
-
-# ConversationHandler
-conv_handler = ConversationHandler(
-    entry_points=[
-        MessageHandler(Filters.document | Filters.photo, handle_file),
-        CommandHandler("start", start),
-    ],
-    states={
-        WAITING_FOR_FILE: [
-            MessageHandler(Filters.document | Filters.photo, handle_file),
-            CallbackQueryHandler(button_handler),
-        ],
-        SELECTING_PHOTO_FORMAT: [
-            CallbackQueryHandler(button_handler, pattern="^photo_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
-        ],
-        SELECTING_DOC_TYPE: [
-            CallbackQueryHandler(button_handler, pattern="^doc_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
-        ],
-        ENTERING_QUANTITY: [
-            MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
-            CallbackQueryHandler(button_handler, pattern="^qty_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
-        ],
-        CONFIRMING_ORDER: [
-            CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
-        ],
-    },
-    fallbacks=[CommandHandler("start", start)],
-)
-
-dispatcher.add_handler(conv_handler)
-
-webhook_url = f"{RENDER_URL}/webhook"
-updater.bot.set_webhook(url=webhook_url)
-
-print(f"✅ Веб-хук: {webhook_url}")
-print("✅ БОТ ГОТОВ К РАБОТЕ!")
-print("=" * 60)
-
-if __name__ == "__main__":
-    print("🌐 Запуск Flask сервера...")
-    app.run(host='0.0.0.0', port=PORT)
+    """Главная страница с супер-премиум дизайном"""
+    orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS

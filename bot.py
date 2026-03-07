@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-С сохранением на компьютер и полной функциональностью
+С возможностью скачивания заказов через веб-интерфейс
 """
 
 import os
@@ -14,8 +14,10 @@ import json
 import re
 import shutil
 import traceback
+import zipfile
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import render_template_string
 
 # Используем синхронную версию python-telegram-bot
 import telegram
@@ -41,27 +43,17 @@ PORT = int(os.environ.get("PORT", 10000))
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
-# ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ ==========
-# Для Windows - меняем на ваш путь
-ORDERS_PATH = r"C:\Users\Miko\Desktop\заказы"
+# ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ НА СЕРВЕРЕ ==========
+ORDERS_FOLDER = "заказы"
+ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FOLDER)
 
-# Проверяем и создаем папку
+# Создаем папку для заказов
 try:
     os.makedirs(ORDERS_PATH, exist_ok=True)
-    print(f"📁 Папка заказов на компьютере: {ORDERS_PATH}")
-    
-    # Проверяем права на запись
-    test_file = os.path.join(ORDERS_PATH, "test.txt")
-    with open(test_file, 'w') as f:
-        f.write("test")
-    os.remove(test_file)
-    print("✅ Права на запись есть")
-    
+    print(f"📁 Папка заказов на сервере: {ORDERS_PATH}")
 except Exception as e:
-    print(f"❌ Ошибка доступа к папке: {e}")
-    print("⚠️ Использую временную папку на сервере")
-    ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "заказы")
-    os.makedirs(ORDERS_PATH, exist_ok=True)
+    print(f"❌ Ошибка создания папки: {e}")
+    sys.exit(1)
 
 # ========== ЛОГИРОВАНИЕ ==========
 logging.basicConfig(
@@ -128,7 +120,9 @@ def count_pages_in_file(file_path, file_name):
         if file_name.lower().endswith('.pdf'):
             with open(file_path, 'rb') as f:
                 pdf = PyPDF2.PdfReader(f)
-                return len(pdf.pages)
+                page_count = len(pdf.pages)
+                logger.info(f"📄 PDF: {file_name} - {page_count} стр.")
+                return page_count
                 
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
@@ -141,11 +135,11 @@ def count_pages_in_file(file_path, file_name):
             if tables_count > 0:
                 estimated_pages += tables_count // 2
             
-            logger.info(f"📄 Word документ: {file_name} - {estimated_pages} стр.")
+            logger.info(f"📄 Word: {file_name} - {estimated_pages} стр. (приблизительно)")
             return estimated_pages
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-            # Для фото считаем как 1 страница
+            # Для фото всегда 1 страница
             logger.info(f"📸 Фото: {file_name} - 1 стр.")
             return 1
             
@@ -178,13 +172,8 @@ def download_file(file, file_name, user_id):
         return None, None
 
 def save_order_to_folder(user_id, username, order_data, files_info):
-    """Сохраняет заказ в папку на компьютере"""
+    """Сохраняет заказ в папку на сервере"""
     try:
-        # Проверяем существование папки
-        if not os.path.exists(ORDERS_PATH):
-            os.makedirs(ORDERS_PATH, exist_ok=True)
-            logger.info(f"📁 Папка создана: {ORDERS_PATH}")
-        
         # Создаем уникальную папку для заказа
         clean_name = re.sub(r'[^\w\s-]', '', username) or f"user_{user_id}"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -229,14 +218,12 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             f.write(f"Сумма к оплате: {order_data['total']} руб.\n")
             f.write(f"Срок выполнения: {order_data['delivery']}\n\n")
             
-            f.write("ДЕТАЛЬНЫЙ РАСЧЕТ:\n")
+            f.write("ФАЙЛЫ:\n")
             for i, file_info in enumerate(files_info, 1):
                 icon = "📸" if file_info['type'] == 'photo' else "📄"
-                f.write(f"{icon} Файл {i}: {file_info['name']}\n")
-                f.write(f"   • Страниц: {file_info['pages']}\n")
-                f.write(f"   • Копий: {order_data['quantity']}\n")
-                file_total = order_data['total'] // len(files_info)
-                f.write(f"   • Сумма: {file_total} руб.\n\n")
+                f.write(f"{icon} {i}. {file_info['name']} - {file_info['pages']} стр.\n")
+            
+            f.write(f"\nВсего файлов: {len(files_info)}")
         
         logger.info(f"📝 Информация о заказе сохранена в {info_file}")
         return True, order_folder
@@ -663,7 +650,8 @@ def button_handler(update, context):
                 f"⏳ Срок выполнения: {session['delivery']}\n\n"
                 f"📞 Контактный телефон: {CONTACT_PHONE}\n"
                 f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                "Спасибо за заказ! 😊"
+                "Спасибо за заказ! 😊\n\n"
+                f"🔗 Скачать заказ: {RENDER_URL}/orders/{os.path.basename(folder)}"
             )
         else:
             text = "❌ Ошибка при сохранении заказа"
@@ -729,12 +717,290 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
+# ========== ВЕБ-ИНТЕРФЕЙС ДЛЯ ПРОСМОТРА ЗАКАЗОВ ==========
+app = Flask(__name__)
+
+@app.route('/orders/')
+def list_orders():
+    """Список всех заказов"""
+    try:
+        orders = []
+        if os.path.exists(ORDERS_PATH):
+            for item in os.listdir(ORDERS_PATH):
+                item_path = os.path.join(ORDERS_PATH, item)
+                if os.path.isdir(item_path):
+                    # Получаем информацию о заказе
+                    info_file = os.path.join(item_path, "информация_о_заказе.txt")
+                    if os.path.exists(info_file):
+                        with open(info_file, 'r', encoding='utf-8') as f:
+                            info = f.read()
+                    else:
+                        info = "Информация отсутствует"
+                    
+                    # Список файлов
+                    files = []
+                    for f in os.listdir(item_path):
+                        if f != "информация_о_заказе.txt":
+                            file_path = os.path.join(item_path, f)
+                            file_size = os.path.getsize(file_path) // 1024  # KB
+                            files.append({
+                                'name': f,
+                                'size': file_size,
+                                'url': f'/orders/{item}/{f}'
+                            })
+                    
+                    orders.append({
+                        'name': item,
+                        'path': item_path,
+                        'info': info,
+                        'files': files,
+                        'created': datetime.fromtimestamp(os.path.getctime(item_path)).strftime('%d.%m.%Y %H:%M:%S')
+                    })
+        
+        # Сортируем по дате (новые сверху)
+        orders.sort(key=lambda x: x['created'], reverse=True)
+        
+        html = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Заказы - Print Bot</title>
+            <meta charset="utf-8">
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+                h1 { color: #333; }
+                .order { background: white; margin: 20px 0; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+                .order-header { background: #667eea; color: white; margin: -20px -20px 20px -20px; padding: 15px 20px; border-radius: 10px 10px 0 0; }
+                .order-header h2 { margin: 0; }
+                .order-date { font-size: 0.9em; opacity: 0.9; }
+                .info { white-space: pre-wrap; background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0; }
+                .files { margin: 10px 0; }
+                .file { display: inline-block; background: #e9ecef; padding: 8px 15px; margin: 5px; border-radius: 20px; text-decoration: none; color: #333; }
+                .file:hover { background: #dee2e6; }
+                .download-all { display: inline-block; background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 10px 0; }
+                .download-all:hover { background: #218838; }
+                .stats { background: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; }
+                .back { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; }
+            </style>
+        </head>
+        <body>
+            <a href="/" class="back">← На главную</a>
+            <h1>📦 Заказы</h1>
+            
+            <div class="stats">
+                <strong>Всего заказов:</strong> """ + str(len(orders)) + """
+            </div>
+            
+            {% for order in orders %}
+            <div class="order">
+                <div class="order-header">
+                    <h2>{{ order.name }}</h2>
+                    <div class="order-date">Создан: {{ order.created }}</div>
+                </div>
+                
+                <div class="info">{{ order.info }}</div>
+                
+                <div class="files">
+                    <h3>Файлы:</h3>
+                    {% for file in order.files %}
+                    <a href="{{ file.url }}" class="file" download>{{ file.name }} ({{ file.size }} KB)</a>
+                    {% endfor %}
+                </div>
+                
+                <a href="/orders/{{ order.name }}/download" class="download-all">⬇️ Скачать все файлы</a>
+            </div>
+            {% endfor %}
+        </body>
+        </html>
+        """
+        
+        from jinja2 import Template
+        template = Template(html)
+        return template.render(orders=orders)
+    except Exception as e:
+        return f"Ошибка: {e}"
+
+@app.route('/orders/<path:order_name>/')
+def view_order(order_name):
+    """Просмотр конкретного заказа"""
+    order_path = os.path.join(ORDERS_PATH, order_name)
+    if not os.path.exists(order_path) or not os.path.isdir(order_path):
+        return "Заказ не найден", 404
+    
+    files = []
+    for f in os.listdir(order_path):
+        file_path = os.path.join(order_path, f)
+        if os.path.isfile(file_path):
+            file_size = os.path.getsize(file_path) // 1024
+            files.append({
+                'name': f,
+                'size': file_size,
+                'url': f'/orders/{order_name}/{f}'
+            })
+    
+    # Читаем информацию о заказе
+    info = ""
+    info_file = os.path.join(order_path, "информация_о_заказе.txt")
+    if os.path.exists(info_file):
+        with open(info_file, 'r', encoding='utf-8') as f:
+            info = f.read()
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Заказ {order_name}</title>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+            .container {{ max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
+            h1 {{ color: #333; }}
+            .info {{ background: #f8f9fa; padding: 15px; border-radius: 5px; white-space: pre-wrap; margin: 20px 0; }}
+            .file {{ display: block; background: #e9ecef; padding: 10px; margin: 5px 0; border-radius: 5px; text-decoration: none; color: #333; }}
+            .file:hover {{ background: #dee2e6; }}
+            .back {{ display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; }}
+            .download-all {{ display: inline-block; background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 10px 0; }}
+        </style>
+    </head>
+    <body>
+        <a href="/orders/" class="back">← К списку заказов</a>
+        <div class="container">
+            <h1>📁 Заказ: {order_name}</h1>
+            <div class="info">{info}</div>
+            <h3>Файлы:</h3>
+            {"".join([f'<a href="{f["url"]}" class="file" download>📄 {f["name"]} ({f["size"]} KB)</a>' for f in files])}
+            <a href="/orders/{order_name}/download" class="download-all">⬇️ Скачать все файлы (ZIP)</a>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
+@app.route('/orders/<path:order_name>/<filename>')
+def download_file(order_name, filename):
+    """Скачивание отдельного файла"""
+    order_path = os.path.join(ORDERS_PATH, order_name)
+    return send_from_directory(order_path, filename, as_attachment=True)
+
+@app.route('/orders/<path:order_name>/download')
+def download_all_files(order_name):
+    """Скачивание всех файлов заказа в ZIP-архиве"""
+    order_path = os.path.join(ORDERS_PATH, order_name)
+    if not os.path.exists(order_path) or not os.path.isdir(order_path):
+        return "Заказ не найден", 404
+    
+    # Создаем временный ZIP-файл
+    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+    with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
+        for root, dirs, files in os.walk(order_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                arcname = os.path.relpath(file_path, order_path)
+                zipf.write(file_path, arcname)
+    
+    return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip")
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Прием обновлений от Telegram"""
+    global dispatcher
+    
+    try:
+        if dispatcher is None:
+            logger.error("❌ dispatcher is None")
+            return jsonify({"error": "Dispatcher not initialized"}), 500
+            
+        update_data = request.get_json()
+        if update_data:
+            logger.info(f"📩 Обновление: {update_data.get('update_id')}")
+            update = telegram.Update.de_json(update_data, bot)
+            
+            # Передаем обновление в диспетчер
+            dispatcher.process_update(update)
+            
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"❌ Ошибка в webhook: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/health')
+def health():
+    """Проверка здоровья"""
+    return jsonify({
+        "status": "ok", 
+        "bot_ready": dispatcher is not None,
+        "orders_count": len(os.listdir(ORDERS_PATH)) if os.path.exists(ORDERS_PATH) else 0,
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/stats')
+def stats():
+    """Статистика заказов"""
+    try:
+        orders_count = 0
+        if os.path.exists(ORDERS_PATH):
+            orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))])
+        
+        return jsonify({
+            "status": "ok",
+            "orders_count": orders_count,
+            "active_sessions": len(user_sessions),
+            "bot_ready": dispatcher is not None,
+            "orders_folder": ORDERS_PATH,
+            "orders_url": f"{RENDER_URL}/orders/"
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+@app.route('/')
+def home():
+    """Главная страница"""
+    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    orders_count = len(os.listdir(ORDERS_PATH)) if os.path.exists(ORDERS_PATH) else 0
+    
+    return f"""
+    <html>
+        <head>
+            <title>Print Bot</title>
+            <meta charset="utf-8">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+                .container {{ max-width: 800px; margin: 0 auto; background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px); }}
+                h1 {{ text-align: center; }}
+                .status {{ background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; }}
+                .info {{ margin: 10px 0; }}
+                .btn {{ display: inline-block; background: white; color: #667eea; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin: 5px; }}
+                .btn:hover {{ background: #f0f0f0; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🤖 Print Bot</h1>
+                <div class="status">
+                    <h2>✅ Бот работает 24/7!</h2>
+                    <p class="info">📁 Всего заказов: <strong>{orders_count}</strong></p>
+                    <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
+                    <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
+                    <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>
+                </div>
+                <p>
+                    <a href="/orders/" class="btn">📦 Просмотр заказов</a>
+                    <a href="/stats" class="btn">📊 Статистика</a>
+                    <a href="/health" class="btn">❤️ Проверка здоровья</a>
+                </p>
+                <p>Бот активен и принимает заказы в Telegram!</p>
+            </div>
+        </body>
+    </html>
+    """
+
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 print("=" * 60)
 print("🚀 ЗАПУСК БОТА")
 print("=" * 60)
 print(f"📁 Папка для заказов: {ORDERS_PATH}")
-print(f"📁 Папка существует: {os.path.exists(ORDERS_PATH)}")
+print(f"📁 URL для просмотра заказов: {RENDER_URL}/orders/")
 
 # Создаем бота
 bot = telegram.Bot(token=TOKEN)
@@ -782,101 +1048,6 @@ updater.bot.set_webhook(url=webhook_url)
 print(f"✅ Веб-хук: {webhook_url}")
 print("✅ БОТ ГОТОВ К РАБОТЕ!")
 print("=" * 60)
-
-# ========== FLASK ПРИЛОЖЕНИЕ ==========
-app = Flask(__name__)
-
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    """Прием обновлений от Telegram"""
-    global dispatcher
-    
-    try:
-        if dispatcher is None:
-            logger.error("❌ dispatcher is None")
-            return jsonify({"error": "Dispatcher not initialized"}), 500
-            
-        update_data = request.get_json()
-        if update_data:
-            logger.info(f"📩 Обновление: {update_data.get('update_id')}")
-            update = telegram.Update.de_json(update_data, bot)
-            
-            # Передаем обновление в диспетчер
-            dispatcher.process_update(update)
-            
-        return "OK", 200
-    except Exception as e:
-        logger.error(f"❌ Ошибка в webhook: {e}")
-        logger.error(traceback.format_exc())
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/health')
-def health():
-    """Проверка здоровья"""
-    return jsonify({
-        "status": "ok", 
-        "bot_ready": dispatcher is not None,
-        "orders_folder": ORDERS_PATH,
-        "orders_folder_exists": os.path.exists(ORDERS_PATH),
-        "timestamp": datetime.now().isoformat()
-    })
-
-@app.route('/stats')
-def stats():
-    """Статистика заказов"""
-    try:
-        orders_count = 0
-        if os.path.exists(ORDERS_PATH):
-            orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))])
-        
-        return jsonify({
-            "status": "ok",
-            "orders_count": orders_count,
-            "active_sessions": len(user_sessions),
-            "bot_ready": dispatcher is not None,
-            "orders_folder": ORDERS_PATH,
-            "orders_folder_exists": os.path.exists(ORDERS_PATH)
-        })
-    except Exception as e:
-        return jsonify({"status": "error", "error": str(e)}), 500
-
-@app.route('/')
-def home():
-    """Главная страница"""
-    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    orders_exist = os.path.exists(ORDERS_PATH)
-    
-    return f"""
-    <html>
-        <head>
-            <title>Print Bot</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 40px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
-                .container {{ max-width: 800px; margin: 0 auto; background: rgba(255,255,255,0.1); padding: 30px; border-radius: 15px; backdrop-filter: blur(10px); }}
-                h1 {{ text-align: center; }}
-                .status {{ background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; }}
-                .info {{ margin: 10px 0; }}
-                .good {{ color: #90EE90; }}
-                .bad {{ color: #FFB6C1; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>🤖 Print Bot</h1>
-                <div class="status">
-                    <h2>✅ Бот работает 24/7!</h2>
-                    <p class="info">📁 Папка заказов: <strong>{ORDERS_PATH}</strong></p>
-                    <p class="info">📁 Статус папки: <strong class="{'good' if orders_exist else 'bad'}">{'✅ Доступна' if orders_exist else '❌ Недоступна'}</strong></p>
-                    <p class="info">📞 Контакт: <strong>{CONTACT_PHONE}</strong></p>
-                    <p class="info">🚚 Доставка: <strong>{DELIVERY_OPTIONS}</strong></p>
-                    <p class="info">⏰ Время сервера: <strong>{current_time}</strong></p>
-                </div>
-                <p>Бот активен и принимает заказы в Telegram!</p>
-                <p>👉 <a href="/stats" style="color: white;">Статистика</a> | <a href="/health" style="color: white;">Проверка здоровья</a></p>
-            </div>
-        </body>
-    </html>
-    """
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":

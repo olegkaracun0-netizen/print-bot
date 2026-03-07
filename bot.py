@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-С функциями: статусы заказов и предпросмотр фото
+Исправленная версия со всеми функциями
 """
 
 import os
@@ -17,7 +17,7 @@ import traceback
 import zipfile
 import threading
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, send_file, send_from_directory
+from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string
 
 # Используем синхронную версию python-telegram-bot
 import telegram
@@ -94,17 +94,22 @@ def save_order_to_history(order_data):
         history.append(order_data)
         with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
             json.dump(history, f, ensure_ascii=False, indent=2)
+        return True
     except Exception as e:
         logger.error(f"Ошибка сохранения истории: {e}")
+        return False
 
 def update_order_status(order_id, new_status):
     """Обновляет статус заказа"""
     try:
         history = load_orders_history()
         updated = False
+        user_id = None
+        
         for order in history:
             if order.get('order_id') == order_id:
                 order['status'] = new_status
+                user_id = order.get('user_id')
                 updated = True
                 break
         
@@ -113,16 +118,16 @@ def update_order_status(order_id, new_status):
                 json.dump(history, f, ensure_ascii=False, indent=2)
             
             # Отправляем уведомление клиенту
-            order_info = next((o for o in history if o.get('order_id') == order_id), None)
-            if order_info and order_info.get('user_id') and bot:
+            if user_id and bot:
                 try:
                     bot.send_message(
-                        chat_id=order_info['user_id'],
+                        chat_id=user_id,
                         text=f"📢 **Статус вашего заказа изменен**\n\n"
                              f"🆔 Заказ: {order_id}\n"
                              f"📌 Новый статус: {get_status_display(new_status)}",
                         parse_mode="Markdown"
                     )
+                    logger.info(f"✅ Уведомление отправлено пользователю {user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления: {e}")
             
@@ -916,9 +921,10 @@ def button_handler(update, context):
                 parse_mode="Markdown"
             )
             
-            # Если есть фото, отправляем предпросмотр (первые 5 фото)
+            # Если есть фото, отправляем предпросмотр
             if photo_files:
                 try:
+                    # Отправляем первые 5 фото
                     media_group = []
                     for i, photo_file in enumerate(photo_files[:5]):
                         with open(photo_file['path'], 'rb') as photo:
@@ -1068,7 +1074,7 @@ def list_orders():
                         'name': item,
                         'info': info_text,
                         'files': files,
-                        'photos': photos,
+                        'photos': photos[:5],  # Только первые 5 фото
                         'file_count': file_count,
                         'total_size': format_file_size(total_size),
                         'created': created.strftime('%d.%m.%Y %H:%M'),
@@ -1079,6 +1085,7 @@ def list_orders():
         # Сортируем по дате (новые сверху)
         orders.sort(key=lambda x: x['created'], reverse=True)
         
+        # HTML шаблон
         html = """
         <!DOCTYPE html>
         <html lang="ru">
@@ -1088,10 +1095,11 @@ def list_orders():
             <title>Print Bot - Заказы</title>
             <style>
                 body {
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                    font-family: Arial, sans-serif;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     min-height: 100vh;
                     padding: 20px;
+                    margin: 0;
                 }
                 
                 .container {
@@ -1113,6 +1121,26 @@ def list_orders():
                     margin-bottom: 10px;
                 }
                 
+                .nav-links {
+                    display: flex;
+                    gap: 15px;
+                    margin-bottom: 30px;
+                }
+                
+                .nav-btn {
+                    background: rgba(255, 255, 255, 0.15);
+                    color: white;
+                    text-decoration: none;
+                    padding: 10px 20px;
+                    border-radius: 10px;
+                    transition: all 0.3s ease;
+                }
+                
+                .nav-btn:hover {
+                    background: rgba(255, 255, 255, 0.25);
+                    transform: translateY(-2px);
+                }
+                
                 .orders-grid {
                     display: grid;
                     grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
@@ -1124,12 +1152,19 @@ def list_orders():
                     border-radius: 20px;
                     overflow: hidden;
                     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+                    transition: all 0.3s ease;
+                }
+                
+                .order-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2);
                 }
                 
                 .order-header {
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     color: white;
                     padding: 20px;
+                    position: relative;
                 }
                 
                 .order-header h2 {
@@ -1187,16 +1222,18 @@ def list_orders():
                 }
                 
                 .status-btn {
-                    padding: 5px 10px;
+                    padding: 8px 12px;
                     border: none;
                     border-radius: 5px;
                     cursor: pointer;
                     font-size: 0.85em;
                     transition: all 0.2s ease;
+                    margin: 2px;
                 }
                 
                 .status-btn:hover {
                     transform: translateY(-2px);
+                    opacity: 0.9;
                 }
                 
                 .status-btn.new { background: #e3f2fd; }
@@ -1212,6 +1249,7 @@ def list_orders():
                     gap: 10px;
                     overflow-x: auto;
                     padding: 10px 0;
+                    margin-bottom: 15px;
                 }
                 
                 .photo-preview {
@@ -1220,6 +1258,12 @@ def list_orders():
                     object-fit: cover;
                     border-radius: 8px;
                     cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+                
+                .photo-preview:hover {
+                    transform: scale(1.1);
+                    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
                 }
                 
                 .files-list {
@@ -1246,6 +1290,11 @@ def list_orders():
                 .file-download {
                     color: #667eea;
                     text-decoration: none;
+                    padding: 5px 10px;
+                }
+                
+                .order-actions {
+                    margin-top: 15px;
                 }
                 
                 .action-btn {
@@ -1255,21 +1304,12 @@ def list_orders():
                     color: white;
                     text-decoration: none;
                     border-radius: 10px;
-                    margin-top: 15px;
+                    transition: all 0.3s ease;
                 }
                 
-                .nav-links {
-                    display: flex;
-                    gap: 15px;
-                    margin-bottom: 30px;
-                }
-                
-                .nav-btn {
-                    background: rgba(255, 255, 255, 0.15);
-                    color: white;
-                    text-decoration: none;
-                    padding: 10px 20px;
-                    border-radius: 10px;
+                .action-btn:hover {
+                    background: #218838;
+                    transform: translateY(-2px);
                 }
             </style>
             <script>
@@ -1284,10 +1324,15 @@ def list_orders():
                     .then(response => response.json())
                     .then(data => {
                         if (data.success) {
+                            alert('Статус успешно обновлен!');
                             location.reload();
                         } else {
-                            alert('Ошибка при обновлении статуса');
+                            alert('Ошибка при обновлении статуса: ' + (data.error || 'неизвестная ошибка'));
                         }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Ошибка при обновлении статуса');
                     });
                 }
             </script>
@@ -1296,12 +1341,13 @@ def list_orders():
             <div class="container">
                 <div class="header">
                     <h1>📦 Заказы на печать</h1>
-                    <p>Всего заказов: """ + str(len(orders)) + """</p>
+                    <p>Всего заказов: {{ orders|length }}</p>
                 </div>
                 
                 <div class="nav-links">
                     <a href="/" class="nav-btn">🏠 Главная</a>
                     <a href="/stats" class="nav-btn">📊 Статистика</a>
+                    <a href="/health" class="nav-btn">❤️ Здоровье</a>
                 </div>
                 
                 <div class="orders-grid">
@@ -1343,7 +1389,7 @@ def list_orders():
                             
                             {% if order.photos %}
                             <div class="photo-gallery">
-                                {% for photo in order.photos[:5] %}
+                                {% for photo in order.photos %}
                                 <img src="{{ photo.url }}" class="photo-preview" onclick="window.open('{{ photo.url }}', '_blank')">
                                 {% endfor %}
                             </div>
@@ -1358,7 +1404,9 @@ def list_orders():
                                 {% endfor %}
                             </div>
                             
-                            <a href="/orders/{{ order.id }}/download" class="action-btn">⬇️ Скачать все</a>
+                            <div class="order-actions">
+                                <a href="/orders/{{ order.id }}/download" class="action-btn">⬇️ Скачать все</a>
+                            </div>
                         </div>
                     </div>
                     {% endfor %}
@@ -1372,7 +1420,7 @@ def list_orders():
         template = Template(html)
         return template.render(orders=orders)
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
+        logger.error(f"Ошибка при отображении заказов: {e}")
         return f"Ошибка: {e}", 500
 
 @app.route('/orders/<path:order_name>/status', methods=['POST'])
@@ -1380,8 +1428,10 @@ def update_order_status_route(order_name):
     """Обновление статуса заказа"""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "error": "Нет данных"}), 400
+            
         new_status = data.get('status')
-        
         if not new_status:
             return jsonify({"success": False, "error": "Не указан статус"}), 400
         
@@ -1399,25 +1449,34 @@ def update_order_status_route(order_name):
 @app.route('/orders/<path:order_name>/download')
 def download_all_files(order_name):
     """Скачивание всех файлов заказа в ZIP-архиве"""
-    order_path = os.path.join(ORDERS_PATH, order_name)
-    if not os.path.exists(order_path) or not os.path.isdir(order_path):
-        return "Заказ не найден", 404
-    
-    temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
-    with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
-        for root, dirs, files in os.walk(order_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                arcname = os.path.relpath(file_path, order_path)
-                zipf.write(file_path, arcname)
-    
-    return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip")
+    try:
+        order_path = os.path.join(ORDERS_PATH, order_name)
+        if not os.path.exists(order_path) or not os.path.isdir(order_path):
+            return "Заказ не найден", 404
+        
+        # Создаем временный ZIP-файл
+        temp_zip = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+        with zipfile.ZipFile(temp_zip.name, 'w') as zipf:
+            for root, dirs, files in os.walk(order_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, order_path)
+                    zipf.write(file_path, arcname)
+        
+        return send_file(temp_zip.name, as_attachment=True, download_name=f"{order_name}.zip")
+    except Exception as e:
+        logger.error(f"Ошибка скачивания: {e}")
+        return f"Ошибка: {e}", 500
 
 @app.route('/orders/<path:order_name>/<filename>')
 def download_order_file(order_name, filename):
     """Скачивание отдельного файла"""
-    order_path = os.path.join(ORDERS_PATH, order_name)
-    return send_from_directory(order_path, filename, as_attachment=True)
+    try:
+        order_path = os.path.join(ORDERS_PATH, order_name)
+        return send_from_directory(order_path, filename, as_attachment=True)
+    except Exception as e:
+        logger.error(f"Ошибка скачивания: {e}")
+        return f"Ошибка: {e}", 500
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -1443,17 +1502,157 @@ def webhook():
 @app.route('/health')
 def health():
     """Проверка здоровья"""
-    return jsonify({"status": "ok", "bot_ready": dispatcher is not None})
+    return jsonify({
+        "status": "ok", 
+        "bot_ready": dispatcher is not None,
+        "timestamp": datetime.now().isoformat()
+    })
 
 @app.route('/stats')
 def stats():
     """Статистика"""
-    return jsonify({"status": "ok", "active_sessions": len(user_sessions)})
+    try:
+        orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
+        return jsonify({
+            "status": "ok",
+            "orders_count": orders_count,
+            "active_sessions": len(user_sessions),
+            "bot_ready": dispatcher is not None
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
 
 @app.route('/')
 def home():
     """Главная страница"""
-    return "✅ Бот работает! Используйте Telegram для заказов."
+    orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
+    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    
+    return f"""
+    <!DOCTYPE html>
+    <html lang="ru">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Print Bot - Главная</title>
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                margin: 0;
+            }}
+            
+            .container {{
+                max-width: 800px;
+                width: 100%;
+            }}
+            
+            .hero {{
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                border-radius: 30px;
+                padding: 40px;
+                color: white;
+                text-align: center;
+                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            }}
+            
+            h1 {{
+                font-size: 3em;
+                margin-bottom: 20px;
+            }}
+            
+            .stats {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 20px;
+                margin: 30px 0;
+            }}
+            
+            .stat-card {{
+                background: rgba(255, 255, 255, 0.15);
+                border-radius: 15px;
+                padding: 20px;
+            }}
+            
+            .stat-value {{
+                font-size: 2em;
+                font-weight: bold;
+                margin-bottom: 5px;
+            }}
+            
+            .nav-links {{
+                display: flex;
+                gap: 15px;
+                justify-content: center;
+                margin-top: 30px;
+            }}
+            
+            .nav-btn {{
+                background: white;
+                color: #667eea;
+                text-decoration: none;
+                padding: 15px 30px;
+                border-radius: 10px;
+                font-weight: bold;
+                transition: all 0.3s ease;
+            }}
+            
+            .nav-btn:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            }}
+            
+            .info {{
+                margin-top: 30px;
+                padding: 20px;
+                background: rgba(0, 0, 0, 0.2);
+                border-radius: 10px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="hero">
+                <h1>🤖 Print Bot</h1>
+                <p>Сервис для печати фото и документов через Telegram</p>
+                
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-value">{orders_count}</div>
+                        <div>активных заказов</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">24/7</div>
+                        <div>работа</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">1-3</div>
+                        <div>дня</div>
+                    </div>
+                </div>
+                
+                <div class="nav-links">
+                    <a href="/orders/" class="nav-btn">📦 Заказы</a>
+                    <a href="/stats" class="nav-btn">📊 Статистика</a>
+                    <a href="/health" class="nav-btn">❤️ Здоровье</a>
+                </div>
+                
+                <div class="info">
+                    <p>📞 Контакт: {CONTACT_PHONE}</p>
+                    <p>🚚 Доставка: {DELIVERY_OPTIONS}</p>
+                    <p>⏰ Время сервера: {current_time}</p>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
 
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 print("=" * 60)
@@ -1462,10 +1661,14 @@ print("=" * 60)
 print(f"📁 Папка для заказов: {ORDERS_PATH}")
 print(f"👤 ID администратора: {ADMIN_CHAT_ID}")
 
+# Создаем бота
 bot = telegram.Bot(token=TOKEN)
+
+# Создаем updater и dispatcher
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
+# Создаем ConversationHandler
 conv_handler = ConversationHandler(
     entry_points=[
         MessageHandler(Filters.document | Filters.photo, handle_file),
@@ -1495,6 +1698,7 @@ conv_handler = ConversationHandler(
 
 dispatcher.add_handler(conv_handler)
 
+# Устанавливаем веб-хук
 webhook_url = f"{RENDER_URL}/webhook"
 updater.bot.set_webhook(url=webhook_url)
 
@@ -1502,6 +1706,7 @@ print(f"✅ Веб-хук: {webhook_url}")
 print("✅ БОТ ГОТОВ К РАБОТЕ!")
 print("=" * 60)
 
+# ========== ЗАПУСК ==========
 if __name__ == "__main__":
     print("🌐 Запуск Flask сервера...")
     app.run(host='0.0.0.0', port=PORT)

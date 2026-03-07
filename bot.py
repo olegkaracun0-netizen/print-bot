@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлены все синтаксические ошибки
+Исправлена кнопка отмены
 """
 
 import os
@@ -753,6 +753,30 @@ def process_single_file(update, context):
     message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
     return WAITING_FOR_FILE
 
+def cancel_order(user_id, query=None):
+    """Общая функция для отмены заказа"""
+    if user_id in user_sessions:
+        if "temp_dirs" in user_sessions[user_id]:
+            for d in user_sessions[user_id]["temp_dirs"]:
+                try:
+                    shutil.rmtree(d, ignore_errors=True)
+                except:
+                    pass
+        del user_sessions[user_id]
+        logger.info(f"✅ Сессия пользователя {user_id} очищена")
+    
+    # Создаем клавиатуру для нового заказа
+    keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # Отправляем или редактируем сообщение
+    if query:
+        query.edit_message_text(
+            "❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
+            reply_markup=reply_markup
+        )
+    return WAITING_FOR_FILE
+
 def button_handler(update, context):
     """Обработка нажатий кнопок"""
     query = update.callback_query
@@ -767,29 +791,8 @@ def button_handler(update, context):
         return WAITING_FOR_FILE
     
     if data == "cancel":
-        # Полностью очищаем сессию пользователя
-        if user_id in user_sessions:
-            # Удаляем все временные файлы
-            if "temp_dirs" in user_sessions[user_id]:
-                for d in user_sessions[user_id]["temp_dirs"]:
-                    try:
-                        shutil.rmtree(d, ignore_errors=True)
-                    except:
-                        pass
-            # Удаляем сессию
-            del user_sessions[user_id]
-            logger.info(f"✅ Сессия пользователя {user_id} очищена")
-        
-        # Создаем клавиатуру для нового заказа
-        keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Отправляем сообщение об отмене
-        query.edit_message_text(
-            "❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
-            reply_markup=reply_markup
-        )
-        return WAITING_FOR_FILE
+        # Используем общую функцию отмены
+        return cancel_order(user_id, query)
     
     if data == "new_order":
         # Очищаем сессию и начинаем новый заказ
@@ -802,7 +805,6 @@ def button_handler(update, context):
                         pass
             del user_sessions[user_id]
         
-        # Отправляем сообщение о новом заказе
         query.edit_message_text(
             "🔄 **НОВЫЙ ЗАКАЗ**\n\n"
             "Отправьте файлы для печати (JPG, PNG, PDF, DOC, DOCX):",
@@ -840,8 +842,7 @@ def button_handler(update, context):
         quantity = int(data.split("_")[1])
         session = user_sessions.get(user_id)
         if not session:
-            query.edit_message_text("❌ Ошибка: сессия не найдена")
-            return WAITING_FOR_FILE
+            return cancel_order(user_id, query)
         
         session["quantity"] = quantity
         
@@ -910,214 +911,7 @@ def button_handler(update, context):
     if data == "confirm":
         session = user_sessions.get(user_id)
         if not session:
-            query.edit_message_text("❌ Ошибка: сессия не найдена")
-            return WAITING_FOR_FILE
-        
-        success, order_id, folder = save_order_to_folder(
-            user_id,
-            session['user_info']['username'],
-            session,
-            session['files']
-        )
-        
-        if success:
-            # Отправляем уведомление админу
-            send_admin_notification(session, order_id, folder)
-            
-            # Подсчитываем для сообщения пользователю
-            photo_files = [f for f in session['files'] if f['type'] == 'photo']
-            doc_files = [f for f in session['files'] if f['type'] == 'doc']
-            
-            total_photos = sum(f['items'] for f in photo_files)
-            total_pages = sum(f['items'] for f in doc_files)
-            
-            # Уведомление клиенту
-            client_message = (
-                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
-                f"🆔 Номер заказа: `{order_id}`\n"
-                f"👤 Заказчик: {session['user_info']['first_name']}\n"
-                f"📦 Файлов: {len(session['files'])}\n"
-            )
-            
-            if total_photos > 0:
-                client_message += f"📸 Фото в оригинале: {total_photos}\n"
-                client_message += f"📸 Фото к печати: {total_photos * session['quantity']}\n"
-            if total_pages > 0:
-                client_message += f"📄 Страниц в оригинале: {total_pages}\n"
-                client_message += f"📄 Страниц к печати: {total_pages * session['quantity']}\n"
-            
-            client_message += (
-                f"💰 Сумма к оплате: {session['total']} руб.\n"
-                f"⏳ Срок выполнения: {session['delivery']}\n\n"
-                f"📞 Контактный телефон: {CONTACT_PHONE}\n"
-                f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                f"📌 **Статус вашего заказа:** {get_status_display('new')}\n"
-                "Вы будете получать уведомления при изменении статуса.\n\n"
-                "Спасибо за заказ! 😊"
-            )
-            
-            context.bot.send_message(
-                chat_id=user_id,
-                text=client_message,
-                parse_mode="Markdown"
-            )
-            
-            # Если есть фото, отправляем предпросмотр
-            if photo_files:
-                try:
-                    # Отправляем первые 5 фото
-                    media_group = []
-                    for i, photo_file in enumerate(photo_files[:5]):
-                        with open(photo_file['path'], 'rb') as photo:
-                            if i == 0:
-                                media_group.append(InputMediaPhoto(
-                                    photo.read(),
-                                    caption=f"📸 Загруженные фото ({len(photo_files)} шт.)"
-                                ))
-                            else:
-                                media_group.append(InputMediaPhoto(photo.read()))
-                    
-                    if media_group:
-                        context.bot.send_media_group(
-                            chat_id=user_id,
-                            media=media_group
-                        )
-                except Exception as e:
-                    logger.error(f"Ошибка отправки предпросмотра: {e}")
-            
-        else:
-            context.bot.send_message(
-                chat_id=user_id,
-                text="❌ Ошибка при сохранении заказа"
-            )
-        
-        # Очищаем временные файлы
-        for d in session.get("temp_dirs", []):
-            shutil.rmtree(d, ignore_errors=True)
-        del user_sessions[user_id]
-        
-        # Кнопка для нового заказа
-        keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
-        query.message.delete()
-        context.bot.send_message(
-            chat_id=user_id,
-            text="Хотите оформить ещё один заказ?",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return WAITING_FOR_FILE
-    
-    return WAITING_FOR_FILE
-    
-    if data == "new_order":
-        if user_id in user_sessions:
-            for d in user_sessions[user_id].get("temp_dirs", []):
-                shutil.rmtree(d, ignore_errors=True)
-            del user_sessions[user_id]
-        query.edit_message_text("🔄 Новый заказ. Отправьте файлы для печати.")
-        return WAITING_FOR_FILE
-    
-    if data.startswith("photo_"):
-        user_sessions[user_id]["type"] = "photo"
-        user_sessions[user_id]["format"] = data.split("_")[1]
-        query.edit_message_text(
-            "🔢 Сколько копий каждого фото напечатать?\n"
-            "Введите число или выберите из вариантов:",
-            reply_markup=get_quantity_keyboard()
-        )
-        return ENTERING_QUANTITY
-    
-    if data.startswith("doc_"):
-        user_sessions[user_id]["type"] = "doc"
-        user_sessions[user_id]["color"] = data.split("_")[1]
-        total_photos = user_sessions[user_id]["total_photos"]
-        total_pages = user_sessions[user_id]["total_pages"]
-        total_items = total_photos + total_pages
-        query.edit_message_text(
-            f"🔢 В файлах всего {total_items} единиц.\n"
-            f"📸 Фото: {total_photos}\n"
-            f"📄 Страниц: {total_pages}\n\n"
-            f"Сколько копий каждого документа напечатать?\n"
-            f"Введите число или выберите из вариантов:",
-            reply_markup=get_quantity_keyboard()
-        )
-        return ENTERING_QUANTITY
-    
-    if data.startswith("qty_"):
-        quantity = int(data.split("_")[1])
-        session = user_sessions.get(user_id)
-        if not session:
-            query.edit_message_text("❌ Ошибка: сессия не найдена")
-            return WAITING_FOR_FILE
-        
-        session["quantity"] = quantity
-        
-        files = session["files"]
-        file_type = session["type"]
-        
-        total = 0
-        total_photos_result = 0
-        total_pages_result = 0
-        details = "📊 ДЕТАЛЬНЫЙ РАСЧЁТ:\n\n"
-        
-        for i, f in enumerate(files, 1):
-            if f['type'] == 'photo':
-                total_photos_result += f['items'] * quantity
-            else:
-                total_pages_result += f['items'] * quantity
-        
-        for i, f in enumerate(files, 1):
-            if file_type == "photo":
-                price_dict = PHOTO_PRICES[session["format"]]
-                file_total = calculate_price(price_dict, quantity)
-                total += file_total
-                details += f"📸 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} фото × {quantity} копий = {f['items'] * quantity} фото\n"
-                details += f"   • {file_total // quantity} руб./копия\n"
-                details += f"   • Итого: {file_total} руб.\n\n"
-            else:
-                price_dict = DOC_PRICES[session["color"]]
-                file_items = f['items'] * quantity
-                file_total = calculate_price(price_dict, file_items)
-                total += file_total
-                details += f"📄 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} стр. × {quantity} копий = {file_items} стр.\n"
-                details += f"   • {file_total // file_items} руб./стр.\n"
-                details += f"   • Итого: {file_total} руб.\n\n"
-        
-        session["total"] = total
-        session["total_photos"] = total_photos_result
-        session["total_pages"] = total_pages_result
-        session["delivery"] = estimate_delivery_time(total_photos_result + total_pages_result)
-        
-        text = f"{details}\n"
-        text += "📋 ПРОВЕРЬТЕ ЗАКАЗ:\n\n"
-        text += f"📦 Всего файлов: {len(files)}\n"
-        if total_photos_result > 0:
-            text += f"📸 Всего фото к печати: {total_photos_result}\n"
-        if total_pages_result > 0:
-            text += f"📄 Всего страниц к печати: {total_pages_result}\n"
-        text += f"💰 ИТОГОВАЯ СУММА: {total} руб.\n"
-        text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
-        text += "Всё верно?"
-        
-        keyboard = [
-            [InlineKeyboardButton("✅ Да, подтвердить заказ", callback_data="confirm"),
-             InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]
-        ]
-        
-        query.message.delete()
-        context.bot.send_message(
-            chat_id=user_id,
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return CONFIRMING_ORDER
-    
-    if data == "confirm":
-        session = user_sessions.get(user_id)
-        if not session:
-            query.edit_message_text("❌ Ошибка: сессия не найдена")
-            return WAITING_FOR_FILE
+            return cancel_order(user_id, query)
         
         success, order_id, folder = save_order_to_folder(
             user_id,
@@ -1463,7 +1257,6 @@ def view_order(order_id):
         
         created = datetime.fromtimestamp(os.path.getctime(order_path))
         
-        # Упрощенная версия без сложных f-строк
         photo_html = ""
         for p in photos:
             photo_html += f'<div class="photo-item"><img src="{p["url"]}" class="photo-img" onclick="window.open(\'{p["url"]}\')"><br>{p["name"]}</div>'
@@ -1725,4 +1518,3 @@ print("=" * 60)
 if __name__ == "__main__":
     print("🌐 Запуск Flask сервера...")
     app.run(host='0.0.0.0', port=PORT)
-

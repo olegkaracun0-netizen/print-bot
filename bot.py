@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-Telegram бот для печати - СИНХРОННАЯ ВЕРСИЯ (без asyncio)
-Работает с Gunicorn без ошибок event loop
+Telegram бот для печати - СИНХРОННАЯ ВЕРСИЯ
+Исправлена глобальная инициализация dispatcher
 """
 
 import os
@@ -67,6 +67,7 @@ user_sessions = {}
 media_groups = {}
 updater = None
 dispatcher = None
+bot = None
 
 # ========== ЦЕНЫ ==========
 PHOTO_PRICES = {
@@ -470,16 +471,71 @@ def handle_quantity_input(update, context):
     context.user_data['temp_quantity'] = quantity
     return button_handler(update, context)
 
+# ========== ИНИЦИАЛИЗАЦИЯ В ГЛОБАЛЬНОЙ ОБЛАСТИ ==========
+print("=" * 60)
+print("🚀 ИНИЦИАЛИЗАЦИЯ БОТА (ГЛОБАЛЬНАЯ)")
+print("=" * 60)
+
+# Создаем бота
+bot = telegram.Bot(token=TOKEN)
+
+# Создаем updater и dispatcher
+updater = Updater(token=TOKEN, use_context=True)
+dispatcher = updater.dispatcher
+
+# Создаем ConversationHandler
+conv_handler = ConversationHandler(
+    entry_points=[
+        MessageHandler(Filters.document | Filters.photo, handle_file),
+        CommandHandler("start", start),
+    ],
+    states={
+        WAITING_FOR_FILE: [
+            MessageHandler(Filters.document | Filters.photo, handle_file),
+            CallbackQueryHandler(button_handler),
+        ],
+        SELECTING_PHOTO_FORMAT: [
+            CallbackQueryHandler(button_handler, pattern="^photo_.*"),
+        ],
+        SELECTING_DOC_TYPE: [
+            CallbackQueryHandler(button_handler, pattern="^doc_.*"),
+        ],
+        ENTERING_QUANTITY: [
+            MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
+            CallbackQueryHandler(button_handler, pattern="^qty_.*"),
+        ],
+        CONFIRMING_ORDER: [
+            CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
+        ],
+    },
+    fallbacks=[CommandHandler("start", start)],
+    name="print_bot_conversation",
+    persistent=False,
+)
+
+dispatcher.add_handler(conv_handler)
+
+# Устанавливаем веб-хук
+webhook_url = f"{RENDER_URL}/webhook"
+updater.bot.set_webhook(url=webhook_url)
+
+print(f"✅ Веб-хук: {webhook_url}")
+print("✅ БОТ ГОТОВ К РАБОТЕ!")
+print("=" * 60)
+
 # ========== FLASK ПРИЛОЖЕНИЕ ==========
 app = Flask(__name__)
-
-# Глобальный бот для веб-хуков
-bot = telegram.Bot(token=TOKEN)
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
     """Прием обновлений от Telegram"""
+    global dispatcher
+    
     try:
+        if dispatcher is None:
+            logger.error("❌ dispatcher is None")
+            return jsonify({"error": "Dispatcher not initialized"}), 500
+            
         update_data = request.get_json()
         if update_data:
             logger.info(f"📩 Обновление: {update_data.get('update_id')}")
@@ -491,6 +547,7 @@ def webhook():
         return "OK", 200
     except Exception as e:
         logger.error(f"❌ Ошибка: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
 
 @app.route('/health')
@@ -498,7 +555,7 @@ def health():
     """Проверка здоровья"""
     return jsonify({
         "status": "ok", 
-        "bot_ready": True,
+        "bot_ready": dispatcher is not None,
         "timestamp": datetime.now().isoformat()
     })
 
@@ -507,55 +564,7 @@ def home():
     """Главная страница"""
     return "✅ Бот работает! Используйте Telegram для заказов."
 
-# ========== ИНИЦИАЛИЗАЦИЯ ==========
+# ========== ЗАПУСК ==========
 if __name__ == "__main__":
-    print("=" * 60)
-    print("🚀 ЗАПУСК БОТА (СИНХРОННАЯ ВЕРСИЯ)")
-    print("=" * 60)
-    
-    # Создаем updater и dispatcher
-    updater = Updater(token=TOKEN, use_context=True)
-    dispatcher = updater.dispatcher
-    
-    # Создаем ConversationHandler
-    conv_handler = ConversationHandler(
-        entry_points=[
-            MessageHandler(Filters.document | Filters.photo, handle_file),
-            CommandHandler("start", start),
-        ],
-        states={
-            WAITING_FOR_FILE: [
-                MessageHandler(Filters.document | Filters.photo, handle_file),
-                CallbackQueryHandler(button_handler),
-            ],
-            SELECTING_PHOTO_FORMAT: [
-                CallbackQueryHandler(button_handler, pattern="^photo_.*"),
-            ],
-            SELECTING_DOC_TYPE: [
-                CallbackQueryHandler(button_handler, pattern="^doc_.*"),
-            ],
-            ENTERING_QUANTITY: [
-                MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
-                CallbackQueryHandler(button_handler, pattern="^qty_.*"),
-            ],
-            CONFIRMING_ORDER: [
-                CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
-            ],
-        },
-        fallbacks=[CommandHandler("start", start)],
-        name="print_bot_conversation",
-        persistent=False,
-    )
-    
-    dispatcher.add_handler(conv_handler)
-    
-    # Устанавливаем веб-хук
-    webhook_url = f"{RENDER_URL}/webhook"
-    updater.bot.set_webhook(url=webhook_url)
-    
-    print(f"✅ Веб-хук: {webhook_url}")
-    print("✅ БОТ ГОТОВ К РАБОТЕ!")
-    print("=" * 60)
-    
-    # Запускаем Flask
+    print("🌐 Запуск Flask сервера...")
     app.run(host='0.0.0.0', port=PORT)

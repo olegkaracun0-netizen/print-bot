@@ -488,7 +488,7 @@ asyncio.set_event_loop(loop)
 # Создаем приложение
 bot_app = Application.builder().token(TOKEN).build()
 
-# Добавляем обработчики
+# Добавляем обработчики с правильными per_* параметрами
 conv_handler = ConversationHandler(
     entry_points=[
         MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
@@ -497,17 +497,24 @@ conv_handler = ConversationHandler(
     states={
         WAITING_FOR_FILE: [
             MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file),
-            CallbackQueryHandler(button_handler),
+            CallbackQueryHandler(button_handler, pattern=None),  # Все callback'и в этом состоянии
         ],
-        SELECTING_PHOTO_FORMAT: [CallbackQueryHandler(button_handler)],
-        SELECTING_DOC_TYPE: [CallbackQueryHandler(button_handler)],
+        SELECTING_PHOTO_FORMAT: [
+            CallbackQueryHandler(button_handler, pattern="^photo_.*"),
+        ],
+        SELECTING_DOC_TYPE: [
+            CallbackQueryHandler(button_handler, pattern="^doc_.*"),
+        ],
         ENTERING_QUANTITY: [
             MessageHandler(filters.TEXT & ~filters.COMMAND, handle_quantity_input),
-            CallbackQueryHandler(button_handler),
+            CallbackQueryHandler(button_handler, pattern="^qty_.*"),
         ],
-        CONFIRMING_ORDER: [CallbackQueryHandler(button_handler)],
+        CONFIRMING_ORDER: [
+            CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
+        ],
     },
     fallbacks=[CommandHandler("start", start)],
+    per_message=False,  # Важно: отслеживать callback'и между сообщениями
 )
 
 bot_app.add_handler(conv_handler)
@@ -578,3 +585,4 @@ if __name__ == "__main__":
             loop.run_until_complete(bot_app.shutdown())
             loop.close()
             logger.info("✅ Бот остановлен")
+

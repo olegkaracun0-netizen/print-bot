@@ -565,7 +565,45 @@ def health():
         "timestamp": datetime.now().isoformat()
     })
 
-@flask_app.route('/stats')
+# ========== FLASK ПРИЛОЖЕНИЕ ==========
+app = Flask(__name__)  # ← ИЗМЕНЕНО: теперь называется app, а не flask_app
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Приём обновлений от Telegram"""
+    global application
+    
+    if not application:
+        return jsonify({"error": "Bot not initialized"}), 500
+    
+    try:
+        update_data = request.get_json()
+        if not update_data:
+            return jsonify({"error": "No data"}), 400
+        
+        update = Update.de_json(update_data, application.bot)
+        
+        # Создаём задачу в event loop
+        asyncio.run_coroutine_threadsafe(
+            application.process_update(update),
+            application.loop
+        )
+        
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/health')
+def health():
+    """Проверка здоровья"""
+    return jsonify({
+        "status": "ok",
+        "bot_ready": application is not None,
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/stats')
 def stats():
     """Статистика"""
     orders = len(os.listdir(ORDERS_FOLDER)) if os.path.exists(ORDERS_FOLDER) else 0
@@ -575,7 +613,7 @@ def stats():
         "bot_ready": application is not None
     })
 
-@flask_app.route('/')
+@app.route('/')
 def home():
     """Главная страница"""
     return f"""
@@ -618,3 +656,4 @@ if __name__ == "__main__":
     # Запускаем Flask в том же потоке
     print(f"🌐 Запуск Flask на порту {PORT}")
     flask_app.run(host='0.0.0.0', port=PORT)
+

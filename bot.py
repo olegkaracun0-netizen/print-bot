@@ -300,36 +300,29 @@ def home():
     </html>
     """
 
-# ========== ЗАПУСК ==========
-print("🔥🔥🔥 ДОХОДИМ ДО if __name__ == '__main__' 🔥🔥🔥", file=sys.stderr)
+# ========== ИНИЦИАЛИЗАЦИЯ ПРИ ИМПОРТЕ ==========
+print("🔥🔥🔥 ВЫПОЛНЯЕТСЯ КОД В ГЛОБАЛЬНОЙ ОБЛАСТИ 🔥🔥🔥", file=sys.stderr)
 sys.stderr.flush()
 
-if __name__ == "__main__":
-    print("🔥🔥🔥 ВХОД В if __name__ == '__main__' 🔥🔥🔥", file=sys.stderr)
-    print("="*60, file=sys.stderr)
-    print("🚀 ЗАПУСК БОТА", file=sys.stderr)
-    print("="*60, file=sys.stderr)
-    sys.stderr.flush()
-    
-    try:
-        # Инициализируем бота
-        print("🔥🔥🔥 ВЫЗЫВАЕМ init_bot() 🔥🔥🔥", file=sys.stderr)
+# Флаг, чтобы инициализировать бота только один раз
+_initialized = False
+
+def initialize_bot_on_import():
+    global _initialized
+    if not _initialized:
+        print("🔥🔥🔥 ВЫЗЫВАЕМ init_bot() ИЗ ГЛОБАЛЬНОЙ ОБЛАСТИ 🔥🔥🔥", file=sys.stderr)
         sys.stderr.flush()
-        
-        init_bot()
-        
-        print("🔥🔥🔥 init_bot() ВЫПОЛНЕНА УСПЕШНО 🔥🔥🔥", file=sys.stderr)
-        print(f"🌐 ЗАПУСК FLASK НА ПОРТУ {PORT}", file=sys.stderr)
-        sys.stderr.flush()
-        
-        app.run(host='0.0.0.0', port=PORT, debug=False)
-        
-    except Exception as e:
-        print("="*60, file=sys.stderr)
-        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА ПРИ ЗАПУСКЕ: {e}", file=sys.stderr)
-        print("="*60, file=sys.stderr)
-        print("📋 ПОЛНЫЙ TRACEBACK:", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        print("="*60, file=sys.stderr)
-        sys.stderr.flush()
-        sys.exit(1)
+        try:
+            init_bot()
+            _initialized = True
+            print("🔥🔥🔥 init_bot() УСПЕШНО ВЫПОЛНЕНА 🔥🔥🔥", file=sys.stderr)
+        except Exception as e:
+            print(f"🔥🔥🔥 КРИТИЧЕСКАЯ ОШИБКА ПРИ ИНИЦИАЛИЗАЦИИ: {e} 🔥🔥🔥", file=sys.stderr)
+            # ВАЖНО: Не скрываем ошибку, позволяем ей остановить запуск
+            raise e
+    else:
+        print("🔥🔥🔥 БОТ УЖЕ ИНИЦИАЛИЗИРОВАН 🔥🔥🔥", file=sys.stderr)
+
+# ВАЖНО: Вызываем функцию инициализации сразу при импорте модуля
+initialize_bot_on_import()
+

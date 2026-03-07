@@ -586,3 +586,4 @@ if __name__ == "__main__":
             loop.close()
             logger.info("✅ Бот остановлен")
 
+

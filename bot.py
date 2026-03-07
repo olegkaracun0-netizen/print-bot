@@ -443,5 +443,35 @@ def stats():
 def home():
     return f"<html><body><h1>🤖 Print Bot</h1><p>Бот работает!</p><a href='/stats'>Статистика</a></body></html>"
 
+# ... (весь ваш код выше) ...
+
+# ========== ИНИЦИАЛИЗАЦИЯ БОТА (ГЛОБАЛЬНАЯ) ==========
+print("="*60)
+print("🚀 ИНИЦИАЛИЗАЦИЯ БОТА")
+print("="*60)
+
+# Инициализируем бота
+application = init_bot()
+
+# Создаём event loop и инициализируем application
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+loop.run_until_complete(application.initialize())
+loop.run_until_complete(application.start())
+
+# Устанавливаем веб-хук
+if RENDER_EXTERNAL_URL:
+    webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
+    loop.run_until_complete(application.bot.delete_webhook(drop_pending_updates=True))
+    loop.run_until_complete(application.bot.set_webhook(webhook_url))
+    logger.info(f"✅ Веб-хук установлен: {webhook_url}")
+else:
+    logger.warning("⚠️ RENDER_EXTERNAL_URL не задан, веб-хук не установлен")
+
+logger.info("✅ Бот готов к работе")
+print("🌐 Запуск Flask...")
+
+# ========== ЗАПУСК FLASK ==========
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=PORT)
+

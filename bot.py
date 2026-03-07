@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Telegram бот для печати - ПОЛНАЯ ФУНКЦИОНАЛЬНОСТЬ
+Telegram бот для печати - РАБОЧАЯ ВЕРСИЯ
 """
 
 import logging
@@ -16,8 +16,19 @@ import shutil
 import traceback
 from datetime import datetime
 from flask import Flask, request, jsonify
+
+# ИМПОРТЫ ИЗ TELEGRAM.BOT
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler
+from telegram.ext import (
+    Application, 
+    CommandHandler, 
+    MessageHandler, 
+    filters, 
+    ContextTypes, 
+    ConversationHandler,
+    CallbackQueryHandler
+)
+
 import PyPDF2
 from docx import Document
 

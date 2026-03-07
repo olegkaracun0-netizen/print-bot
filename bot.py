@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-С сохранением заказов на компьютере и полной функциональностью
+Исправлены все ошибки
 """
 
 import os
@@ -40,9 +40,7 @@ PORT = int(os.environ.get("PORT", 10000))
 CONTACT_PHONE = "89219805705"
 DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
-# ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ НА КОМПЬЮТЕРЕ ==========
-# Для Windows: C:\Users\Miko\Desktop\заказы\
-# Для Render: ./заказы/
+# ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ ==========
 if os.name == 'nt':  # Windows
     BASE_DIR = os.path.join('C:\\', 'Users', 'Miko', 'Desktop')
 else:  # Linux/Mac (Render)
@@ -54,11 +52,9 @@ ORDERS_PATH = os.path.join(BASE_DIR, ORDERS_FOLDER)
 # Создаем папку для заказов
 try:
     os.makedirs(ORDERS_PATH, exist_ok=True)
-    print(f"📁 Папка заказов создана: {ORDERS_PATH}")
-    print(f"📁 Права доступа: {oct(os.stat(ORDERS_PATH).st_mode)[-3:]}")
+    print(f"📁 Папка заказов: {ORDERS_PATH}")
 except Exception as e:
     print(f"❌ Ошибка создания папки: {e}")
-    # Пробуем создать в текущей директории как запасной вариант
     ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FOLDER)
     os.makedirs(ORDERS_PATH, exist_ok=True)
     print(f"📁 Используем запасную папку: {ORDERS_PATH}")
@@ -82,7 +78,7 @@ logger = logging.getLogger(__name__)
 
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 user_sessions = {}
-media_groups = {}
+media_groups = {}  # Для хранения групп файлов
 updater = None
 dispatcher = None
 bot = None
@@ -130,7 +126,16 @@ def count_pages_in_file(file_path, file_name):
                 return len(pdf.pages)
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
-            return max(1, len(doc.paragraphs) // 30)
+            # Приблизительный подсчет страниц в Word
+            paragraphs = len(doc.paragraphs)
+            estimated_pages = max(1, paragraphs // 35)
+            
+            # Учитываем таблицы
+            tables_count = len(doc.tables)
+            if tables_count > 0:
+                estimated_pages += tables_count // 2
+            
+            return estimated_pages
         return 1
     except Exception as e:
         logger.error(f"Ошибка подсчета страниц: {e}")
@@ -176,6 +181,8 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         logger.info(f"📁 Создана папка заказа: {order_folder}")
         
         saved_files = []
+        total_sum = 0
+        
         for i, f in enumerate(files_info, 1):
             if os.path.exists(f['path']):
                 # Очищаем имя файла от недопустимых символов
@@ -207,6 +214,7 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             
             f.write(f"Количество копий: {order_data['quantity']}\n")
             f.write(f"Всего страниц в оригинале: {order_data['total_pages']}\n")
+            f.write(f"Всего страниц к печати: {order_data['total_pages'] * order_data['quantity']}\n")
             f.write(f"Сумма к оплате: {order_data['total']} руб.\n")
             f.write(f"Срок выполнения: {order_data['delivery']}\n\n")
             
@@ -216,10 +224,6 @@ def save_order_to_folder(user_id, username, order_data, files_info):
                 f.write(f"{icon} Файл {i}: {file_info['name']}\n")
                 f.write(f"   • Страниц: {file_info['pages']}\n")
                 f.write(f"   • Копий: {order_data['quantity']}\n")
-                if file_info['type'] == 'photo':
-                    f.write(f"   • Цена за копию: {PHOTO_PRICES[order_data['format']][(1,9)][1]} руб.\n")
-                else:
-                    f.write(f"   • Цена за страницу: {DOC_PRICES[order_data['color']][(1,20)][1]} руб.\n")
                 f.write(f"   • Сумма: {order_data['total'] // len(files_info)} руб.\n\n")
         
         logger.info(f"📝 Информация о заказе сохранена в {info_file}")
@@ -258,6 +262,162 @@ def start(update, context):
 
 def handle_file(update, context):
     """Обработка входящих файлов"""
+    user_id = update.effective_user.id
+    message = update.message
+    
+    # Проверяем, является ли это медиа-группой (несколько файлов)
+    if message.media_group_id:
+        return handle_media_group(update, context)
+    
+    # Обработка одиночного файла
+    return process_single_file(update, context)
+
+def handle_media_group(update, context):
+    """Обработка группы файлов (несколько в одном сообщении)"""
+    user_id = update.effective_user.id
+    message = update.message
+    media_group_id = message.media_group_id
+    
+    # Сохраняем сообщение в группу
+    if user_id not in media_groups:
+        media_groups[user_id] = {}
+    
+    if media_group_id not in media_groups[user_id]:
+        media_groups[user_id][media_group_id] = []
+    
+    media_groups[user_id][media_group_id].append(message)
+    
+    # Запускаем таймер для обработки группы через 2 секунды
+    if 'timers' not in context.chat_data:
+        context.chat_data['timers'] = {}
+    
+    if media_group_id not in context.chat_data['timers']:
+        # Создаем таймер для обработки группы
+        import threading
+        timer = threading.Timer(2.0, process_media_group, args=[user_id, media_group_id, context])
+        timer.daemon = True
+        timer.start()
+        context.chat_data['timers'][media_group_id] = timer
+    
+    return WAITING_FOR_FILE
+
+def process_media_group(user_id, media_group_id, context):
+    """Обрабатывает группу файлов после сбора всех сообщений"""
+    try:
+        if user_id not in media_groups or media_group_id not in media_groups[user_id]:
+            return
+        
+        messages = media_groups[user_id].pop(media_group_id)
+        if not messages:
+            return
+        
+        # Удаляем таймер
+        if 'timers' in context.chat_data and media_group_id in context.chat_data['timers']:
+            del context.chat_data['timers'][media_group_id]
+        
+        # Создаем сессию если нужно
+        if user_id not in user_sessions:
+            user_sessions[user_id] = {
+                "files": [],
+                "temp_dirs": [],
+                "total_pages": 0,
+                "user_info": {
+                    "user_id": user_id,
+                    "username": messages[0].from_user.username or messages[0].from_user.first_name,
+                    "first_name": messages[0].from_user.first_name,
+                    "last_name": messages[0].from_user.last_name or ""
+                }
+            }
+        
+        # Обрабатываем все файлы из группы
+        doc_count = 0
+        photo_count = 0
+        
+        for message in messages:
+            file = None
+            file_name = None
+            file_type = None
+            
+            if message.document:
+                file = message.document
+                file_name = file.file_name
+                ext = file_name.lower().split('.')[-1]
+                if ext in ['jpg', 'jpeg', 'png']:
+                    file_type = "photo"
+                    photo_count += 1
+                elif ext in ['pdf', 'doc', 'docx']:
+                    file_type = "doc"
+                    doc_count += 1
+                else:
+                    continue
+            elif message.photo:
+                file = message.photo[-1]
+                file_name = f"photo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                file_type = "photo"
+                photo_count += 1
+            else:
+                continue
+            
+            # Скачиваем файл
+            file_path, temp_dir = download_file(file, file_name, user_id)
+            if not file_path:
+                continue
+            
+            # Считаем страницы
+            pages = count_pages_in_file(file_path, file_name)
+            
+            # Сохраняем в сессию
+            user_sessions[user_id]["files"].append({
+                "path": file_path,
+                "name": file_name,
+                "type": file_type,
+                "pages": pages
+            })
+            user_sessions[user_id]["temp_dirs"].append(temp_dir)
+            user_sessions[user_id]["total_pages"] += pages
+        
+        files_count = len(user_sessions[user_id]["files"])
+        total_pages = user_sessions[user_id]["total_pages"]
+        
+        text = f"✅ Загружено **{files_count}** файлов!\n\n📊 **Статистика:**\n"
+        if photo_count > 0:
+            text += f"📸 Фото: {photo_count}\n"
+        if doc_count > 0:
+            text += f"📄 Документы: {doc_count}\n"
+        text += f"📄 Всего страниц: {total_pages}\n\n"
+        
+        # Предлагаем выбор (если есть документы, приоритет у них)
+        if doc_count > 0:
+            text += "Выберите тип печати для документов:"
+            keyboard = [
+                [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
+                [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
+                [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+                [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+            ]
+        else:
+            text += "Выберите формат печати для фото:"
+            keyboard = [
+                [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
+                [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
+                [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
+                [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+                [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+            ]
+        
+        context.bot.send_message(
+            chat_id=user_id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"Ошибка при обработке группы файлов: {e}")
+        logger.error(traceback.format_exc())
+
+def process_single_file(update, context):
+    """Обработка одиночного файла"""
     user_id = update.effective_user.id
     message = update.message
     
@@ -405,7 +565,11 @@ def button_handler(update, context):
     
     if data.startswith("qty_"):
         quantity = int(data.split("_")[1])
-        session = user_sessions[user_id]
+        session = user_sessions.get(user_id)
+        if not session:
+            query.edit_message_text("❌ Ошибка: сессия не найдена")
+            return WAITING_FOR_FILE
+        
         session["quantity"] = quantity
         
         files = session["files"]
@@ -450,7 +614,7 @@ def button_handler(update, context):
         
         keyboard = [
             [InlineKeyboardButton("✅ Да, подтвердить заказ", callback_data="confirm"),
-             [InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]]
+             InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]
         ]
         
         query.message.delete()
@@ -465,6 +629,7 @@ def button_handler(update, context):
     if data == "confirm":
         session = user_sessions.get(user_id)
         if not session:
+            query.edit_message_text("❌ Ошибка: сессия не найдена")
             return WAITING_FOR_FILE
         
         success, folder = save_order_to_folder(
@@ -479,7 +644,8 @@ def button_handler(update, context):
                 "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
                 f"👤 Заказчик: {session['user_info']['first_name']}\n"
                 f"📦 Файлов: {len(session['files'])}\n"
-                f"📊 Всего страниц: {session['total_pages']}\n"
+                f"📊 Всего страниц в оригинале: {session['total_pages']}\n"
+                f"📊 Всего страниц к печати: {session['total_pages'] * session['quantity']}\n"
                 f"💰 Сумма к оплате: {session['total']} руб.\n"
                 f"⏳ Срок выполнения: {session['delivery']}\n\n"
                 f"📞 Контактный телефон: {CONTACT_PHONE}\n"

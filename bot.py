@@ -8,13 +8,13 @@
 ║   ░█░░░█░█░█░█░█▀▀░▄▀▄░░░█░░░█░█░█░█░█▀▀░█░░░█▀▀░░█░░█▀▀░█▄█░█▀▄░█▀▀░█▀▄      ║
 ║   ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀░░░▀▀▀░▀▀▀░▀░▀░▀░░░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀      ║
 ║                                                                                  ║
-║                     ⚡ PRINT BOT PREMIUM v3.0 ⚡                                 ║
-║                  НОВЫЙ СУПЕР-ДИЗАЙН ДЛЯ TELEGRAM                                ║
+║                     ⚡ PRINT BOT PREMIUM v4.0 ⚡                                 ║
+║                  СУПЕР-ДИЗАЙН ДЛЯ TELEGRAM ✨                                   ║
 ║                                                                                  ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 Telegram бот для печати фото и документов
-НОВЫЙ ПРЕМИУМ ДИЗАЙН с красивыми рамками и анимациями
+СУПЕР-ПРЕМИУМ ДИЗАЙН с красивым форматированием
 """
 
 import os
@@ -30,7 +30,6 @@ import threading
 from datetime import datetime
 from flask import Flask, request, send_file, render_template_string, abort
 
-# Используем синхронную версию python-telegram-bot
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
@@ -52,7 +51,7 @@ if not RENDER_URL:
 
 PORT = int(os.environ.get("PORT", 10000))
 CONTACT_PHONE = "89219805705"
-DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
+DELIVERY_OPTIONS = "🚀 Самовывоз СПб | 📦 СДЭК | 🚚 Яндекс"
 
 # ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ ==========
 ORDERS_FOLDER = "заказы"
@@ -65,7 +64,7 @@ except Exception as e:
     print(f"❌ Ошибка создания папки: {e}")
     sys.exit(1)
 
-# ========== ФАЙЛ ДЛЯ ХРАНЕНИЯ ИСТОРИИ ЗАКАЗОВ ==========
+# ========== ФАЙЛ ДЛЯ ХРАНЕНИЯ ИСТОРИИ ==========
 ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
 
 # ========== СТАТУСЫ ЗАКАЗОВ ==========
@@ -132,11 +131,10 @@ def update_order_status(order_id, new_status):
             
             if user_id and bot:
                 try:
+                    status_emoji = new_status[:2]
                     bot.send_message(
                         chat_id=user_id,
-                        text=f"📢 **Статус вашего заказа изменен**\n\n"
-                             f"🆔 Заказ: {order_id}\n"
-                             f"📌 Новый статус: {get_status_display(new_status)}",
+                        text=f"━━━━━━━━━━━━━━━━━━━━━━\n{status_emoji} **СТАТУС ЗАКАЗА ИЗМЕНЕН** {status_emoji}\n━━━━━━━━━━━━━━━━━━━━━━\n\n🆔 Заказ: `{order_id}`\n📌 Новый статус: {get_status_display(new_status)}\n\n━━━━━━━━━━━━━━━━━━━━━━",
                         parse_mode="Markdown"
                     )
                 except Exception as e:
@@ -195,51 +193,53 @@ DOC_PRICES = {
     "color": {(1, 20): 50, (21, 100): 35, (101, 300): 25, (301, float("inf")): 20},
 }
 
-# ========== НОВЫЙ СУПЕР-ПРЕМИУМ ДИЗАЙН ДЛЯ TELEGRAM ==========
+# ========== СУПЕР-ДИЗАЙН ДЛЯ TELEGRAM ==========
+# Используем ТОЛЬКО то, что поддерживает Telegram:
+# • **жирный текст**
+# • *курсив*
+# • `моноширинный`
+# • эмодзи
+# • пробелы и переносы строк
 
-def create_premium_header(title, emoji):
-    """Создает премиум заголовок с рамкой"""
-    return (
-        "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n"
-        f"   {emoji}  {title.upper()}  {emoji}\n"
-        "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
-    )
+def section(title, emoji="🔹"):
+    """Создает красивый заголовок раздела"""
+    return f"\n━━━━━━━━━━━━━━━━━━━━━━\n{emoji} **{title.upper()}** {emoji}\n━━━━━━━━━━━━━━━━━━━━━━\n"
 
-def create_glowing_text(text):
-    """Создает светящийся текст"""
-    return f"✨ *{text}* ✨"
+def highlight(text):
+    """Выделяет важный текст"""
+    return f"✨ **{text}** ✨"
 
-def create_neon_line():
-    """Создает неоновую линию"""
-    return "✦ ───────────────────── ✦"
+def price_tag(amount):
+    """Красиво отображает цену"""
+    return f"💰 **{amount} ₽**"
 
-def create_fancy_bullet(text, emoji="•"):
-    """Создает красивый пункт списка"""
-    return f"{emoji} `{text}`"
-
-def format_price_with_animation(price):
-    """Форматирует цену с анимацией"""
-    return f"💰 **{price} ₽**"
-
-def create_status_badge(status):
+def status_badge(status):
     """Создает красивый статус-бейдж"""
     badges = {
-        "new": "🆕 НОВЫЙ",
-        "processing": "🔄 ОБРАБОТКА",
-        "printing": "🖨️ ПЕЧАТЬ",
-        "ready": "✅ ГОТОВО",
-        "shipped": "📦 ОТПРАВЛЕНО",
-        "delivered": "🏁 ДОСТАВЛЕНО",
-        "cancelled": "❌ ОТМЕНЕНО"
+        "new": "🆕 **НОВЫЙ**",
+        "processing": "🔄 **В ОБРАБОТКЕ**",
+        "printing": "🖨️ **ПЕЧАТАЕТСЯ**",
+        "ready": "✅ **ГОТОВ**",
+        "shipped": "📦 **ОТПРАВЛЕН**",
+        "delivered": "🏁 **ДОСТАВЛЕН**",
+        "cancelled": "❌ **ОТМЕНЕН**"
     }
-    return f"**{badges.get(status, status)}**"
+    return badges.get(status, status)
 
-def create_progress_bar(current, total, width=15):
-    """Создает красивый прогресс-бар"""
+def bullet(text, icon="•"):
+    """Создает пункт списка"""
+    return f"{icon} {text}"
+
+def count_badge(count, unit):
+    """Создает красивый счетчик"""
+    return f"`{count} {unit}`"
+
+def progress_bar(current, total, width=10):
+    """Создает прогресс-бар из символов"""
     filled = int((current / total) * width)
-    bar = "▓" * filled + "░" * (width - filled)
-    percentage = int((current / total) * 100)
-    return f"`[{bar}] {percentage}%`"
+    bar = "█" * filled + "░" * (width - filled)
+    percent = int((current / total) * 100)
+    return f"`[{bar}] {percent}%`"
 
 # ========== ОСНОВНЫЕ ФУНКЦИИ ==========
 def calculate_price(price_dict, quantity):
@@ -250,11 +250,11 @@ def calculate_price(price_dict, quantity):
 
 def estimate_delivery_time(total_items):
     if total_items <= 50:
-        return "1 день"
+        return "⏱️ 1 день"
     elif total_items <= 200:
-        return "2 дня"
+        return "⏱️ 2 дня"
     else:
-        return "3 дня"
+        return "⏱️ 3 дня"
 
 def extract_number_from_text(text):
     numbers = re.findall(r'\d+', text)
@@ -266,24 +266,21 @@ def count_items_in_file(file_path, file_name):
             with open(file_path, 'rb') as f:
                 pdf = PyPDF2.PdfReader(f)
                 page_count = len(pdf.pages)
-                return page_count, "страниц", "документ"
+                return page_count, "стр", "документ"
                 
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
             paragraphs = len(doc.paragraphs)
             estimated_pages = max(1, paragraphs // 35)
-            tables_count = len(doc.tables)
-            if tables_count > 0:
-                estimated_pages += tables_count // 2
-            return estimated_pages, "страниц", "документ"
+            return estimated_pages, "стр", "документ"
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
             return 1, "фото", "фото"
             
-        return 1, "единиц", "неизвестно"
+        return 1, "ед", "неизвестно"
     except Exception as e:
         logger.error(f"Ошибка подсчета: {e}")
-        return 1, "единиц", "неизвестно"
+        return 1, "ед", "неизвестно"
 
 def download_file(file_obj, file_name):
     try:
@@ -406,30 +403,28 @@ def send_admin_notification(order_data, order_id, order_folder):
         total_photos = sum(f['items'] for f in photo_files)
         total_pages = sum(f['items'] for f in doc_files)
         
-        admin_message = f"🆕 НОВЫЙ ЗАКАЗ!\n\n"
-        admin_message += f"👤 Клиент: {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
-        admin_message += f"🆔 ID: {order_data['user_info']['user_id']}\n\n"
+        admin_message = f"━━━━━━━━━━━━━━━━━━━━━━\n🚨 **НОВЫЙ ЗАКАЗ** 🚨\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        admin_message += f"👤 **Клиент:** {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
+        admin_message += f"🆔 **ID:** `{order_data['user_info']['user_id']}`\n\n"
         
         if order_data['type'] == 'photo':
-            format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
-            admin_message += f"📸 Тип: Фото\n"
-            admin_message += f"📸 Формат: {format_names[order_data['format']]}\n"
+            format_names = {"small": "Малый", "medium": "Средний", "large": "Большой"}
+            admin_message += f"📸 **Тип:** Фото ({format_names[order_data['format']]})\n"
         else:
-            color_names = {"bw": "Черно-белая", "color": "Цветная"}
-            admin_message += f"📄 Тип: Документы\n"
-            admin_message += f"📄 Печать: {color_names[order_data['color']]}\n"
+            color_names = {"bw": "Ч/Б", "color": "Цветная"}
+            admin_message += f"📄 **Тип:** Документы ({color_names[order_data['color']]})\n"
         
-        admin_message += f"📦 Копий: {order_data['quantity']}\n"
-        admin_message += f"📦 Файлов: {len(order_data['files'])}\n"
+        admin_message += f"📦 **Копий:** {order_data['quantity']}\n"
+        admin_message += f"📁 **Файлов:** {len(order_data['files'])}\n\n"
         
         if photo_files:
-            admin_message += f"📸 Фото: {len(photo_files)} файлов, {total_photos} фото\n"
+            admin_message += f"📸 **Фото:** {len(photo_files)} файлов, {total_photos} шт.\n"
         if doc_files:
-            admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц\n"
+            admin_message += f"📄 **Документы:** {len(doc_files)} файлов, {total_pages} стр.\n"
         
-        admin_message += f"💰 Сумма: {order_data['total']} руб.\n"
-        admin_message += f"⏳ Срок: {order_data['delivery']}\n\n"
-        admin_message += f"🔗 Ссылка на заказ:\n{order_url}"
+        admin_message += f"\n💰 **Сумма:** {order_data['total']} ₽\n"
+        admin_message += f"⏳ **Срок:** {order_data['delivery']}\n\n"
+        admin_message += f"━━━━━━━━━━━━━━━━━━━━━━\n🔗 {order_url}"
         
         if bot:
             bot.send_message(
@@ -441,10 +436,10 @@ def send_admin_notification(order_data, order_id, order_folder):
     except Exception as e:
         logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
 
-# ========== НОВЫЕ ФУНКЦИИ TELEGRAM С ПРЕМИУМ ДИЗАЙНОМ ==========
+# ========== ФУНКЦИИ TELEGRAM С СУПЕР-ДИЗАЙНОМ ==========
 
 def start(update, context):
-    """Команда /start с новым премиум дизайном"""
+    """Команда /start с супер-дизайном"""
     user = update.effective_user
     user_id = user.id
     logger.info(f"✅ /start от {user_id}")
@@ -456,31 +451,35 @@ def start(update, context):
         del user_sessions[user_id]
     
     welcome = f"""
-{create_premium_header('ДОБРО ПОЖАЛОВАТЬ', '🤖')}
+━━━━━━━━━━━━━━━━━━━━━━
+🤖 **ДОБРО ПОЖАЛОВАТЬ** 🤖
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text(f'Привет, {user.first_name}!')} 👋
+✨ **{user.first_name}**, рады тебя видеть! ✨
 
-{create_neon_line()}
-
-⚡️ **Print Bot Premium v3.0** ⚡️
-
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
+⚡️ **PRINT BOT PREMIUM** ⚡️
+━━━━━━━━━━━━━━━━━━━━━━
 
 📌 **МОИ ВОЗМОЖНОСТИ:**
-├ 📸 `Фото` (JPG, PNG) - 3 формата
-├ 📄 `Документы` (PDF, DOC, DOCX)
-├ 📦 `Пакетная` загрузка до 10 файлов
-├ 💰 `Мгновенный` расчет стоимости
-├ 📊 `Отслеживание` статуса заказа
-└ 🎨 `Стильный` дизайн сообщений
 
-{create_neon_line()}
+📸 **Фото** (JPG, PNG)
+   • 3 формата на выбор
+   • Гибкая система скидок
 
+📄 **Документы** (PDF, DOC, DOCX)
+   • Ч/б и цветная печать
+   • Автоподсчет страниц
+
+📦 **Пакетная загрузка**
+   • До 10 файлов за раз
+   • Мгновенный расчет
+
+━━━━━━━━━━━━━━━━━━━━━━
 📞 **Контакты:** `{CONTACT_PHONE}`
-🚚 **Доставка:** `{DELIVERY_OPTIONS}`
+🚚 **Доставка:** {DELIVERY_OPTIONS}
 
-{create_neon_line()}
-
+━━━━━━━━━━━━━━━━━━━━━━
 ⬇️ **Отправьте файлы для печати** ⬇️
 """
     
@@ -488,7 +487,7 @@ def start(update, context):
     return WAITING_FOR_FILE
 
 def process_single_file(update, context):
-    """Обработка файла с новым дизайном"""
+    """Обработка файла с супер-дизайном"""
     user_id = update.effective_user.id
     message = update.message
     
@@ -520,17 +519,20 @@ def process_single_file(update, context):
             file_type = "doc"
         else:
             error_msg = f"""
-{create_premium_header('ОШИБКА', '❌')}
+━━━━━━━━━━━━━━━━━━━━━━
+❌ **ОШИБКА ФОРМАТА** ❌
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text('Неподдерживаемый формат')}
+✨ Неподдерживаемый формат файла
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
 📌 **Допустимые форматы:**
-├ 📸 `JPG, PNG`
-├ 📄 `PDF, DOC, DOCX`
 
-{create_neon_line()}
+📸 **Фото:** `JPG`, `PNG`
+📄 **Документы:** `PDF`, `DOC`, `DOCX`
+
+━━━━━━━━━━━━━━━━━━━━━━
 
 Попробуйте еще раз! 🔄
 """
@@ -573,30 +575,29 @@ def process_single_file(update, context):
     total_pages = user_sessions[user_id]["total_pages"]
     
     text = f"""
-{create_premium_header('ФАЙЛ ДОБАВЛЕН', '✅')}
+━━━━━━━━━━━━━━━━━━━━━━
+✅ **ФАЙЛ УСПЕШНО ДОБАВЛЕН** ✅
+━━━━━━━━━━━━━━━━━━━━━━
 
-📄 **Файл:** `{file_name[:30]}...`
+📄 **Файл:** `{file_name[:40]}{'...' if len(file_name) > 40 else ''}`
 📦 **Тип:** {'📸 Фото' if file_type == 'photo' else '📄 Документ'}
-🔢 **Количество:** `{items} {unit}`
+🔢 **Количество:** {items} {unit}
 
-{create_neon_line()}
-
-📊 **ТЕКУЩАЯ СТАТИСТИКА:"""
+━━━━━━━━━━━━━━━━━━━━━━
+📊 **ТЕКУЩАЯ СТАТИСТИКА:**
+"""
     
     if photo_count > 0:
-        text += f"\n├ 📸 **Фото:** {photo_count} файлов"
+        text += f"\n• 📸 Фото: {photo_count} файлов"
     if doc_count > 0:
-        text += f"\n├ 📄 **Документы:** {doc_count} файлов"
+        text += f"\n• 📄 Документы: {doc_count} файлов"
     if total_photos > 0:
-        text += f"\n├ 📸 **Всего фото:** {total_photos}"
+        text += f"\n• 📸 Всего фото: {total_photos}"
     if total_pages > 0:
-        text += f"\n├ 📄 **Всего страниц:** {total_pages}"
-    text += f"\n└ 📦 **Всего файлов:** {files_count}"
+        text += f"\n• 📄 Всего страниц: {total_pages}"
+    text += f"\n• 📦 Всего файлов: {files_count}"
     
-    text += f"""
-
-{create_neon_line()}
-"""
+    text += f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n"
     
     if doc_count > 0:
         text += "\n📋 **Выберите тип печати:**"
@@ -732,25 +733,22 @@ def process_media_group(user_id, media_group_id, context):
         total_pages = user_sessions[user_id]["total_pages"]
         
         text = f"""
-{create_premium_header(f'ЗАГРУЖЕНО {files_count} ФАЙЛОВ', '✅')}
+━━━━━━━━━━━━━━━━━━━━━━
+✅ **ЗАГРУЖЕНО {files_count} ФАЙЛОВ** ✅
+━━━━━━━━━━━━━━━━━━━━━━
 
-📊 **СТАТИСТИКА:"""
+📊 **СТАТИСТИКА:**"""
         
         if photo_count > 0:
-            text += f"\n├ 📸 Фото: {photo_count}"
+            text += f"\n• 📸 Фото: {photo_count}"
         if doc_count > 0:
-            text += f"\n├ 📄 Документы: {doc_count}"
+            text += f"\n• 📄 Документы: {doc_count}"
         if total_photos > 0:
-            text += f"\n├ 📸 Всего фото: {total_photos}"
+            text += f"\n• 📸 Всего фото: {total_photos}"
         if total_pages > 0:
-            text += f"\n├ 📄 Всего страниц: {total_pages}"
+            text += f"\n• 📄 Всего страниц: {total_pages}"
         
-        text += f"\n└ 📦 Всего файлов: {files_count}"
-        
-        text += f"""
-
-{create_neon_line()}
-"""
+        text += f"\n\n━━━━━━━━━━━━━━━━━━━━━━\n"
         
         if doc_count > 0:
             text += "\n📋 **Выберите тип печати:**"
@@ -795,15 +793,15 @@ def button_handler(update, context):
     if data == "add_more":
         query.edit_message_text(
             f"""
-{create_premium_header('ДОБАВЬТЕ ФАЙЛЫ', '📤')}
+━━━━━━━━━━━━━━━━━━━━━━
+📤 **ДОБАВЬТЕ ЕЩЕ ФАЙЛЫ** 📤
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text('Отправьте следующие файлы')}
+✨ Отправьте следующие файлы для печати
 
-{create_neon_line()}
-
+━━━━━━━━━━━━━━━━━━━━━━
 📌 JPG, PNG, PDF, DOC, DOCX
-
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 """,
             parse_mode="Markdown"
         )
@@ -821,15 +819,15 @@ def button_handler(update, context):
         
         query.edit_message_text(
             f"""
-{create_premium_header('НОВЫЙ ЗАКАЗ', '🔄')}
+━━━━━━━━━━━━━━━━━━━━━━
+🔄 **НОВЫЙ ЗАКАЗ** 🔄
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text('Отправьте файлы для печати')}
+✨ Отправьте файлы для печати
 
-{create_neon_line()}
-
+━━━━━━━━━━━━━━━━━━━━━━
 📌 JPG, PNG, PDF, DOC, DOCX
-
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 """,
             parse_mode="Markdown"
         )
@@ -840,7 +838,7 @@ def button_handler(update, context):
             return cancel_order(user_id, query, context)
         
         format_type = data.split("_")[1]
-        format_names = {"small": "Малый (A6/10x15)", "medium": "Средний (13x18/15x21)", "large": "Большой (A4/21x30)"}
+        format_names = {"small": "МАЛЫЙ (A6/10x15)", "medium": "СРЕДНИЙ (13x18/15x21)", "large": "БОЛЬШОЙ (A4/21x30)"}
         format_prices = {
             "small": "1-9: 35₽ | 10-50: 28₽ | 51-100: 23₽ | 101+: 18₽",
             "medium": "1-9: 65₽ | 10-50: 55₽ | 51-100: 45₽ | 101+: 35₽",
@@ -851,16 +849,16 @@ def button_handler(update, context):
         user_sessions[user_id]["format"] = format_type
         
         text = f"""
-{create_premium_header(format_names[format_type], '🖼️')}
+━━━━━━━━━━━━━━━━━━━━━━
+🖼️ **{format_names[format_type]}** 🖼️
+━━━━━━━━━━━━━━━━━━━━━━
 
 💰 **Цены:**
 `{format_prices[format_type]}`
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
 🔢 **Сколько копий напечатать?**
-
-{create_neon_line()}
 
 Введите число или выберите из вариантов ниже:
 """
@@ -877,7 +875,7 @@ def button_handler(update, context):
             return cancel_order(user_id, query, context)
         
         doc_type = data.split("_")[1]
-        color_names = {"bw": "Черно-белая", "color": "Цветная"}
+        color_names = {"bw": "ЧЕРНО-БЕЛАЯ", "color": "ЦВЕТНАЯ"}
         color_prices = {
             "bw": "1-20: 25₽ | 21-100: 18₽ | 101-300: 14₽ | 301+: 10₽",
             "color": "1-20: 50₽ | 21-100: 35₽ | 101-300: 25₽ | 301+: 20₽"
@@ -891,21 +889,23 @@ def button_handler(update, context):
         total_items = total_photos + total_pages
         
         text = f"""
-{create_premium_header(color_names[doc_type], '📄')}
+━━━━━━━━━━━━━━━━━━━━━━
+📄 **{color_names[doc_type]}** 📄
+━━━━━━━━━━━━━━━━━━━━━━
 
 💰 **Цены:**
 `{color_prices[doc_type]}`
 
-📊 **В файлах:**
-├ 📸 Фото: {total_photos}
-└ 📄 Страниц: {total_pages}
-Всего: {total_items} ед.
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_neon_line()}
+📊 **В ФАЙЛАХ:**
+• 📸 Фото: {total_photos}
+• 📄 Страниц: {total_pages}
+• 📦 Всего: {total_items} ед.
+
+━━━━━━━━━━━━━━━━━━━━━━
 
 🔢 **Сколько копий напечатать?**
-
-{create_neon_line()}
 
 Введите число или выберите из вариантов ниже:
 """
@@ -931,7 +931,7 @@ def button_handler(update, context):
         total = 0
         total_photos_result = 0
         total_pages_result = 0
-        details = f"{create_premium_header('ДЕТАЛЬНЫЙ РАСЧЕТ', '💰')}\n\n"
+        details = f"━━━━━━━━━━━━━━━━━━━━━━\n💰 **ДЕТАЛЬНЫЙ РАСЧЕТ** 💰\n━━━━━━━━━━━━━━━━━━━━━━\n\n"
         
         for i, f in enumerate(files, 1):
             if f['type'] == 'photo':
@@ -945,16 +945,16 @@ def button_handler(update, context):
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
                 details += f"📸 **Файл {i}:**\n"
-                details += f"   ├ {f['items']} фото × {quantity} коп.\n"
-                details += f"   └ = {f['items'] * quantity} фото → {format_price_with_animation(file_total)}\n\n"
+                details += f"   • {f['items']} фото × {quantity} коп.\n"
+                details += f"   • = {f['items'] * quantity} фото → **{file_total} ₽**\n\n"
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
                 details += f"📄 **Файл {i}:**\n"
-                details += f"   ├ {f['items']} стр. × {quantity} коп.\n"
-                details += f"   └ = {file_items} стр. → {format_price_with_animation(file_total)}\n\n"
+                details += f"   • {f['items']} стр. × {quantity} коп.\n"
+                details += f"   • = {file_items} стр. → **{file_total} ₽**\n\n"
         
         session["total"] = total
         session["total_photos"] = total_photos_result
@@ -963,7 +963,9 @@ def button_handler(update, context):
         
         text = f"""
 {details}
-{create_premium_header('ПРОВЕРЬТЕ ЗАКАЗ', '📋')}
+━━━━━━━━━━━━━━━━━━━━━━
+📋 **ПРОВЕРЬТЕ ЗАКАЗ** 📋
+━━━━━━━━━━━━━━━━━━━━━━
 
 📦 **Всего файлов:** {len(files)}
 """
@@ -973,11 +975,11 @@ def button_handler(update, context):
             text += f"\n📄 **Страниц к печати:** {total_pages_result}"
         
         text += f"""
-{create_neon_line()}
-💰 **ИТОГОВАЯ СУММА:** {format_price_with_animation(total)}
-⏳ **Срок выполнения:** `{session['delivery']}`
+━━━━━━━━━━━━━━━━━━━━━━
+💰 **ИТОГОВАЯ СУММА:** **{total} ₽**
+⏳ **Срок выполнения:** {session['delivery']}
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
 ❓ **Всё верно?**
 """
@@ -1018,17 +1020,19 @@ def button_handler(update, context):
             total_pages = sum(f['items'] for f in doc_files)
             
             client_message = f"""
-{create_premium_header('ЗАКАЗ ОФОРМЛЕН', '🎉')}
+━━━━━━━━━━━━━━━━━━━━━━
+🎉 **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!** 🎉
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text('Спасибо за заказ!')}
+✨ **Спасибо за заказ!** ✨
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
 🆔 **Номер заказа:** `{order_id}`
 👤 **Заказчик:** {session['user_info']['first_name']}
 📦 **Файлов:** {len(session['files'])}
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 """
             
             if total_photos > 0:
@@ -1039,22 +1043,24 @@ def button_handler(update, context):
                 client_message += f"\n📄 **Страниц к печати:** {total_pages * session['quantity']}"
             
             client_message += f"""
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
-💰 **Сумма к оплате:** {format_price_with_animation(session['total'])}
-⏳ **Срок выполнения:** `{session['delivery']}`
+💰 **Сумма к оплате:** **{session['total']} ₽**
+⏳ **Срок выполнения:** {session['delivery']}
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
-📞 **Контакт:** `{CONTACT_PHONE}`
-🚚 **Доставка:** `{DELIVERY_OPTIONS}`
+📞 **Контактный телефон:** `{CONTACT_PHONE}`
+🚚 **Доставка:** {DELIVERY_OPTIONS}
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
-📌 **Статус:** {create_status_badge('new')}
+📌 **Статус:** {status_badge('new')}
 Вы будете получать уведомления при изменении статуса.
 
-{create_premium_header('СПАСИБО', '✨')}
+━━━━━━━━━━━━━━━━━━━━━━
+✨ **Спасибо за заказ!** ✨
+━━━━━━━━━━━━━━━━━━━━━━
 """
             
             context.bot.send_message(
@@ -1099,13 +1105,13 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=f"""
-{create_premium_header('ЕЩЕ ЗАКАЗ?', '🤔')}
+━━━━━━━━━━━━━━━━━━━━━━
+🤔 **ХОТИТЕ ЕЩЕ ЗАКАЗ?** 🤔
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text('Хотите оформить ещё один заказ?')}
+✨ Нажмите кнопку ниже чтобы начать заново! ✨
 
-{create_neon_line()}
-
-Нажмите кнопку ниже чтобы начать заново! 🔄
+━━━━━━━━━━━━━━━━━━━━━━
 """,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -1129,17 +1135,19 @@ def cancel_order(user_id, query=None, context=None):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = f"""
-{create_premium_header('ЗАКАЗ ОТМЕНЕН', '❌')}
+━━━━━━━━━━━━━━━━━━━━━━
+❌ **ЗАКАЗ ОТМЕНЕН** ❌
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text('Все файлы удалены')}
+✨ Все загруженные файлы удалены ✨
 
-{create_neon_line()}
+━━━━━━━━━━━━━━━━━━━━━━
 
 🤔 **Хотите оформить новый заказ?**
 
-{create_neon_line()}
-
 Нажмите кнопку ниже чтобы начать заново! 🔄
+
+━━━━━━━━━━━━━━━━━━━━━━
 """
     
     if query:
@@ -1200,13 +1208,15 @@ def handle_quantity_input(update, context):
     if not quantity or quantity < 1 or quantity > 1000:
         update.message.reply_text(
             f"""
-{create_premium_header('ОШИБКА', '❌')}
+━━━━━━━━━━━━━━━━━━━━━━
+❌ **ОШИБКА** ❌
+━━━━━━━━━━━━━━━━━━━━━━
 
-{create_glowing_text('Введите число от 1 до 1000')}
-
-{create_neon_line()}
+✨ Введите число от 1 до 1000
 
 Или выберите из кнопок ниже:
+
+━━━━━━━━━━━━━━━━━━━━━━
 """,
             reply_markup=get_quantity_keyboard(),
             parse_mode="Markdown"
@@ -1222,7 +1232,7 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
-# ========== ВЕБ-ИНТЕРФЕЙС (CSS ДЛЯ ВЕБА) ==========
+# ========== ВЕБ-ИНТЕРФЕЙС ==========
 
 PREMIUM_CSS = """
 <style>
@@ -1518,16 +1528,16 @@ def home():
         
         html += f"""
                     <div class="order-card" style="background: rgba(255,255,255,0.95); padding: 25px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
-                                <h3>🆔 {order.get('order_id', 'N/A')}</h3>
+                                <h3>🆔 {order.get('order_id', 'N/A')[:10]}...</h3>
                                 <p style="color: #666;">👤 {order.get('user_name', 'Неизвестно')}</p>
                             </div>
                             <span class="status-badge {status_class}">{status_text}</span>
                         </div>
-                        <div style="margin-top: 15px; display: flex; gap: 20px;">
-                            <span>📸 Фото: {order.get('total_photos', 0)}</span>
-                            <span>📄 Страниц: {order.get('total_pages', 0)}</span>
+                        <div style="margin-top: 15px;">
+                            <span>📸 {order.get('total_photos', 0)} фото</span> | 
+                            <span>📄 {order.get('total_pages', 0)} стр.</span> | 
                             <span>💰 {order.get('total_price', 0)} ₽</span>
                         </div>
                         <a href="/orders/{order.get('order_id')}/" style="display: inline-block; margin-top: 15px; color: #667eea;">Подробнее →</a>
@@ -1601,7 +1611,7 @@ def list_orders():
             <div class="premium-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
                     <h1 class="neon-text" style="font-size: 2.5em;">📦 ВСЕ ЗАКАЗЫ</h1>
-                    <a href="/" class="glow-btn">🏠 НА ГЛАВНУЮ</a>
+                    <a href="/" class="glow-btn">🏠 ГЛАВНАЯ</a>
                 </div>
                 
                 <div style="display: grid; gap: 30px;">
@@ -1615,12 +1625,12 @@ def list_orders():
                     <div class="order-card">
                         <div class="order-header">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <h2 style="color: white;">🆔 {order['id']}</h2>
+                                <h2 style="color: white;">🆔 {order['id'][:15]}...</h2>
                                 <span class="status-badge {status_class}">{status_text}</span>
                             </div>
                         </div>
                         <div style="padding: 30px;">
-                            <div style="display: flex; gap: 30px; margin-bottom: 20px;">
+                            <div style="margin-bottom: 20px;">
                                 <span>💰 Сумма: <strong>{order['total']} ₽</strong></span>
                             </div>
                             <a href="/orders/{order['id']}/" class="glow-btn">ПОДРОБНЕЕ →</a>
@@ -1652,8 +1662,6 @@ def view_order(order_id):
             info_content = f.read()
     
     files = []
-    photos = []
-    
     for f in os.listdir(order_path):
         file_path = os.path.join(order_path, f)
         if os.path.isfile(file_path) and not f.startswith('информация'):
@@ -1664,8 +1672,6 @@ def view_order(order_id):
                 'size_str': format_file_size(os.path.getsize(file_path)),
                 'ext': ext
             })
-            if ext in ['jpg', 'jpeg', 'png']:
-                photos.append(f)
     
     status = "new"
     status_match = re.search(r'Статус: (.*?)(?:\n|$)', info_content)
@@ -1680,23 +1686,23 @@ def view_order(order_id):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>Заказ {order_id} | Print Bot</title>
+        <title>Заказ | Print Bot</title>
         {PREMIUM_CSS}
     </head>
     <body>
         <div class="container">
             <div class="premium-card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
-                    <h1 class="neon-text" style="font-size: 2em;">🆔 ЗАКАЗ {order_id[:10]}...</h1>
+                    <h1 class="neon-text" style="font-size: 2em;">🆔 ЗАКАЗ {order_id[:15]}...</h1>
                     <div>
-                        <a href="/orders/" class="glow-btn" style="padding: 10px 20px;">📋 К СПИСКУ</a>
+                        <a href="/orders/" class="glow-btn" style="padding: 10px 20px;">📋 НАЗАД</a>
                         <a href="/" class="glow-btn" style="padding: 10px 20px;">🏠 ГЛАВНАЯ</a>
                     </div>
                 </div>
                 
                 <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 40px; padding: 30px; margin-bottom: 30px;">
                     <h2 style="color: white; margin-bottom: 20px;">Текущий статус:</h2>
-                    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
     """
     
     for status_key, status_value in ORDER_STATUSES.items():
@@ -1709,32 +1715,30 @@ def view_order(order_id):
                     </div>
                 </div>
                 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px;">
-                    <div class="order-card" style="padding: 30px;">
-                        <h2>📊 Детали заказа</h2>
-                        <pre style="white-space: pre-wrap;">{info_content}</pre>
-                    </div>
-                    
-                    <div class="order-card" style="padding: 30px;">
-                        <h2>📁 Файлы ({len(files)})</h2>
-                        <div style="max-height: 500px; overflow-y: auto;">
+                <div class="order-card" style="padding: 30px;">
+                    <h2>📊 Детали заказа</h2>
+                    <pre style="white-space: pre-wrap; font-family: inherit;">{info_content}</pre>
+                </div>
+                
+                <div class="order-card" style="padding: 30px; margin-top: 20px;">
+                    <h2>📁 Файлы ({len(files)})</h2>
+                    <div style="margin-top: 20px;">
     """
     
     for file in files:
         icon = "📸" if file['ext'] in ['jpg', 'jpeg', 'png'] else "📄"
         html += f"""
-                            <div style="padding: 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
-                                <div>{icon} {file['name']}<br><small>{file['size_str']}</small></div>
-                                <a href="/orders/{order_id}/file/{file['name']}" class="glow-btn" style="padding: 5px 15px;" download>📥</a>
-                            </div>
+                        <div style="padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
+                            <span>{icon} {file['name']} ({file['size_str']})</span>
+                            <a href="/orders/{order_id}/file/{file['name']}" class="glow-btn" style="padding: 5px 15px;" download>📥</a>
+                        </div>
         """
     
     html += f"""
-                        </div>
                     </div>
                 </div>
                 
-                <div style="display: flex; gap: 20px;">
+                <div style="display: flex; gap: 20px; margin-top: 30px;">
                     <a href="/orders/{order_id}/download/" class="glow-btn" style="flex: 1; text-align: center;">📦 СКАЧАТЬ ВСЕ</a>
                     <a href="/orders/{order_id}/delete/" class="glow-btn" style="flex: 1; text-align: center; background: linear-gradient(45deg, #f44336, #ff1744);"
                        onclick="return confirm('Удалить заказ?');">🗑️ УДАЛИТЬ</a>
@@ -1891,9 +1895,9 @@ def stats():
                     </div>
                 </div>
                 
-                <div class="order-card" style="padding: 30px;">
+                <div class="order-card" style="padding: 30px; margin-top: 30px;">
                     <h2>📌 Статусы заказов</h2>
-                    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 20px;">
     """
     
     for status, count in status_stats.items():
@@ -1902,7 +1906,7 @@ def stats():
         html += f"""
                         <div style="text-align: center;">
                             <span class="status-badge {status_class}">{status_text}</span>
-                            <div style="font-size: 2em;">{count}</div>
+                            <div style="font-size: 2em; margin-top: 5px;">{count}</div>
                         </div>
         """
     
@@ -1981,6 +1985,7 @@ def run_bot():
         
         bot_info = bot.get_me()
         logger.info(f"✅ Бот запущен: @{bot_info.username}")
+        logger.info(f"✅ Папка заказов: {ORDERS_PATH}")
         
         app.run(host="0.0.0.0", port=PORT)
         

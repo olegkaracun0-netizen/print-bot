@@ -2,19 +2,8 @@
 # -*- coding: utf-8 -*-
 
 """
-╔══════════════════════════════════════════════════════════════════════════════════╗
-║                                                                                  ║
-║        ░█▀▀░█▀█░█▀▄░█▀▀░█░█░░░█▀▀░█▀█░█▄█░█▀█░█░░░█▀▀░▀█▀░█▀▀░█░█░█▀▄░█▀▀░█▀▄    ║
-║        ░█░░░█░█░█░█░█▀▀░▄▀▄░░░█░░░█░█░█░█░█▀▀░█░░░█▀▀░░█░░█▀▀░█▄█░█▀▄░█▀▀░█▀▄    ║
-║        ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀░░░▀▀▀░▀▀▀░▀░▀░▀░░░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀    ║
-║                                                                                  ║
-║                                                                                  ║
-║                                                                                  ║
-║                                                                                  ║
-╚══════════════════════════════════════════════════════════════════════════════════╝
-
 Telegram бот для печати фото и документов
-ПРЕМИУМ ДИЗАЙН с красивыми рамками и эмодзи
+ПРЕМИУМ ДИЗАЙН
 """
 
 import os
@@ -40,18 +29,18 @@ from docx import Document
 # ========== НАСТРОЙКИ ==========
 TOKEN = os.environ.get("TOKEN")
 if not TOKEN:
-    print("❌ ОШИБКА: TOKEN не задан!")
+    print("ОШИБКА: TOKEN не задан")
     sys.exit(1)
 
 ADMIN_CHAT_ID = 483613049
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 if not RENDER_URL:
-    print("❌ ОШИБКА: RENDER_EXTERNAL_URL не задан!")
+    print("ОШИБКА: RENDER_EXTERNAL_URL не задан")
     sys.exit(1)
 
 PORT = int(os.environ.get("PORT", 10000))
 CONTACT_PHONE = "89219805705"
-DELIVERY_OPTIONS = "🚀 Самовывоз СПб | 📦 СДЭК | 🚚 Яндекс"
+DELIVERY_OPTIONS = "Самовывоз СПб | СДЭК | Яндекс Доставка"
 
 # ========== ПУТЬ К ПАПКЕ ЗАКАЗОВ ==========
 ORDERS_FOLDER = "заказы"
@@ -59,9 +48,9 @@ ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FO
 
 try:
     os.makedirs(ORDERS_PATH, exist_ok=True)
-    print(f"📁 Папка заказов: {ORDERS_PATH}")
+    print(f"Папка заказов: {ORDERS_PATH}")
 except Exception as e:
-    print(f"❌ Ошибка создания папки: {e}")
+    print(f"Ошибка создания папки: {e}")
     sys.exit(1)
 
 # ========== ФАЙЛ ДЛЯ ХРАНЕНИЯ ИСТОРИИ ==========
@@ -69,17 +58,26 @@ ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
 
 # ========== СТАТУСЫ ЗАКАЗОВ ==========
 ORDER_STATUSES = {
-    "new": "🆕 Новый",
-    "processing": "🔄 В обработке",
-    "printing": "🖨️ В печати",
-    "ready": "✅ Готов",
-    "shipped": "📦 Отправлен",
-    "delivered": "🏁 Доставлен",
-    "cancelled": "❌ Отменен"
+    "new": "Новый",
+    "processing": "В обработке",
+    "printing": "В печати",
+    "ready": "Готов",
+    "shipped": "Отправлен",
+    "delivered": "Доставлен",
+    "cancelled": "Отменен"
 }
 
 def get_status_display(status):
-    return ORDER_STATUSES.get(status, status)
+    status_icons = {
+        "new": "🆕 Новый",
+        "processing": "🔄 В обработке",
+        "printing": "🖨️ В печати",
+        "ready": "✅ Готов",
+        "shipped": "📦 Отправлен",
+        "delivered": "🏁 Доставлен",
+        "cancelled": "❌ Отменен"
+    }
+    return status_icons.get(status, status)
 
 # ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ ==========
 def load_orders_history():
@@ -133,7 +131,7 @@ def update_order_status(order_id, new_status):
                 try:
                     bot.send_message(
                         chat_id=user_id,
-                        text=f"🔔 **Статус вашего заказа изменен**\n\n📦 Заказ: `{order_id}`\n📍 Новый статус: {get_status_display(new_status)}",
+                        text=f"Статус вашего заказа изменен\n\nЗаказ: {order_id}\nНовый статус: {get_status_display(new_status)}",
                         parse_mode="Markdown"
                     )
                 except Exception as e:
@@ -195,26 +193,21 @@ DOC_PRICES = {
 # ========== ПРЕМИУМ ДИЗАЙН ДЛЯ TELEGRAM ==========
 
 def header(text, emoji="✨"):
-    """Красивый заголовок с рамкой"""
     return f"""
 ╔══════════════════════════════════╗
 ║     {emoji}  {text.upper()}  {emoji}     ║
 ╚══════════════════════════════════╝"""
 
 def section(text, emoji="📌"):
-    """Раздел с подчеркиванием"""
     return f"\n{emoji}  **{text}**\n" + "▔" * 25
 
 def point(text, emoji="●"):
-    """Пункт списка"""
     return f"{emoji}  {text}"
 
 def price_tag(amount):
-    """Красивое отображение цены"""
     return f"💎  **{amount} ₽**  💎"
 
 def status_badge(status):
-    """Красивый статус"""
     badges = {
         "new": "🆕 **НОВЫЙ**",
         "processing": "🔄 **В ОБРАБОТКЕ**",
@@ -226,17 +219,8 @@ def status_badge(status):
     }
     return badges.get(status, status)
 
-def counter(number, unit, emoji="🔢"):
-    """Счетчик"""
-    return f"{emoji}  `{number}` {unit}"
-
 def divider():
-    """Разделитель"""
     return "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
-
-def mini_divider():
-    """Маленький разделитель"""
-    return "▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹"
 
 # ========== ОСНОВНЫЕ ФУНКЦИИ ==========
 def calculate_price(price_dict, quantity):
@@ -296,7 +280,7 @@ def download_file(file_obj, file_name):
         
         return file_path, temp_dir
     except Exception as e:
-        logger.error(f"❌ Ошибка скачивания: {e}")
+        logger.error(f"Ошибка скачивания: {e}")
         return None, None
 
 def save_order_to_folder(user_id, username, order_data, files_info):
@@ -313,7 +297,7 @@ def save_order_to_folder(user_id, username, order_data, files_info):
                 new_path = os.path.join(order_folder, f"{i}_{safe_name}")
                 shutil.copy2(f['path'], new_path)
             else:
-                logger.error(f"❌ Файл не найден: {f['path']}")
+                logger.error(f"Файл не найден: {f['path']}")
         
         photo_files = [ff for ff in files_info if ff['type'] == 'photo']
         doc_files = [ff for ff in files_info if ff['type'] == 'doc']
@@ -386,7 +370,7 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         
         return True, order_id, order_folder
     except Exception as e:
-        logger.error(f"❌ Ошибка сохранения: {e}")
+        logger.error(f"Ошибка сохранения: {e}")
         logger.error(traceback.format_exc())
         return False, None, None
 
@@ -402,11 +386,11 @@ def send_admin_notification(order_data, order_id, order_folder):
         
         admin_message = f"""
 ╔══════════════════════════════════╗
-║     🚨  НОВЫЙ ЗАКАЗ  🚨         ║
+║        НОВЫЙ ЗАКАЗ              ║
 ╚══════════════════════════════════╝
 
 👤 **Клиент:** {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})
-🆔 **ID:** `{order_data['user_info']['user_id']}`
+🆔 **ID:** {order_data['user_info']['user_id']}
 
 ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
 📦 **Параметры:**
@@ -433,7 +417,7 @@ def send_admin_notification(order_data, order_id, order_folder):
 💰 **Сумма:** {order_data['total']} ₽
 ⏱️ **Срок:** {order_data['delivery']}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 🔗 {order_url}"""
         
         if bot:
@@ -442,18 +426,17 @@ def send_admin_notification(order_data, order_id, order_folder):
                 text=admin_message,
                 parse_mode="Markdown"
             )
-            logger.info(f"✅ Уведомление отправлено админу {ADMIN_CHAT_ID}")
+            logger.info(f"Уведомление отправлено админу {ADMIN_CHAT_ID}")
             
     except Exception as e:
-        logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
+        logger.error(f"Ошибка отправки уведомления админу: {e}")
 
 # ========== ФУНКЦИИ TELEGRAM ==========
 
 def start(update, context):
-    """Команда /start с премиум дизайном"""
     user = update.effective_user
     user_id = user.id
-    logger.info(f"✅ /start от {user_id}")
+    logger.info(f"/start от {user_id}")
     
     if user_id in user_sessions:
         if "temp_dirs" in user_sessions[user_id]:
@@ -468,9 +451,7 @@ def start(update, context):
 
 ✨ **Привет, {user.first_name}!** ✨
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
-⚡️ **PRINT BOT PREMIUM** ⚡️
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 📌 **МОИ ВОЗМОЖНОСТИ:**
 
@@ -486,12 +467,12 @@ def start(update, context):
    ● До 10 файлов за раз
    ● Мгновенный расчет
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
-📞 **Контакты:** `{CONTACT_PHONE}`
+📞 **Контакты:** {CONTACT_PHONE}
 🚚 **Доставка:** {DELIVERY_OPTIONS}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 ⬇️ **Отправьте файлы для печати** ⬇️
 """
@@ -500,7 +481,6 @@ def start(update, context):
     return WAITING_FOR_FILE
 
 def process_single_file(update, context):
-    """Обработка файла с премиум дизайном"""
     user_id = update.effective_user.id
     message = update.message
     
@@ -533,21 +513,21 @@ def process_single_file(update, context):
         else:
             error_msg = f"""
 ╔══════════════════════════════════╗
-║        ❌  ОШИБКА ФОРМАТА  ❌     ║
+║        ❌  ОШИБКА ФОРМАТА       ║
 ╚══════════════════════════════════╝
 
 ✨ Неподдерживаемый формат файла
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 📌 **ДОПУСТИМЫЕ ФОРМАТЫ:**
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
-📸 **Фото:** `JPG`, `PNG`
-📄 **Документы:** `PDF`, `DOC`, `DOCX`
+📸 **Фото:** JPG, PNG
+📄 **Документы:** PDF, DOC, DOCX
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
-Попробуйте еще раз! 🔄
+Попробуйте еще раз 🔄
 """
             message.reply_text(error_msg, parse_mode="Markdown")
             return WAITING_FOR_FILE
@@ -560,7 +540,7 @@ def process_single_file(update, context):
     
     file_path, temp_dir = download_file(file_obj, file_name)
     if not file_path:
-        message.reply_text("❌ Не удалось загрузить файл")
+        message.reply_text("Не удалось загрузить файл")
         return WAITING_FOR_FILE
     
     items, unit, type_name = count_items_in_file(file_path, file_name)
@@ -589,16 +569,16 @@ def process_single_file(update, context):
     
     text = f"""
 ╔══════════════════════════════════╗
-║     ✅  ФАЙЛ УСПЕШНО ДОБАВЛЕН  ✅ ║
+║     ✅  ФАЙЛ УСПЕШНО ДОБАВЛЕН   ║
 ╚══════════════════════════════════╝
 
-📄 **Файл:** `{file_name[:40]}{'...' if len(file_name) > 40 else ''}`
+📄 **Файл:** {file_name[:40]}{'...' if len(file_name) > 40 else ''}
 📦 **Тип:** {'📸 Фото' if file_type == 'photo' else '📄 Документ'}
-🔢 **Количество:** `{items}` {unit}
+🔢 **Количество:** {items} {unit}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 📊 **ТЕКУЩАЯ СТАТИСТИКА**
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 """
     
     if photo_count > 0:
@@ -611,7 +591,7 @@ def process_single_file(update, context):
         text += f"\n📄 Всего страниц: {total_pages}"
     text += f"\n📦 Всего файлов: {files_count}"
     
-    text += f"\n\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n"
+    text += f"\n\n{divider()}\n"
     
     if doc_count > 0:
         text += "\n📋 **Выберите тип печати:**"
@@ -738,7 +718,7 @@ def process_media_group(user_id, media_group_id, context):
         if not user_sessions[user_id]["files"]:
             context.bot.send_message(
                 chat_id=user_id,
-                text="❌ Не удалось загрузить файлы"
+                text="Не удалось загрузить файлы"
             )
             return
         
@@ -748,12 +728,12 @@ def process_media_group(user_id, media_group_id, context):
         
         text = f"""
 ╔══════════════════════════════════╗
-║   ✅  ЗАГРУЖЕНО {files_count} ФАЙЛОВ  ✅   ║
+║   ✅  ЗАГРУЖЕНО {files_count} ФАЙЛОВ   ║
 ╚══════════════════════════════════╝
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 📊 **СТАТИСТИКА**
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"""
+{divider()}"""
         
         if photo_count > 0:
             text += f"\n📸 Фото: {photo_count}"
@@ -764,7 +744,7 @@ def process_media_group(user_id, media_group_id, context):
         if total_pages > 0:
             text += f"\n📄 Всего страниц: {total_pages}"
         
-        text += f"\n\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n"
+        text += f"\n\n{divider()}\n"
         
         if doc_count > 0:
             text += "\n📋 **Выберите тип печати:**"
@@ -801,7 +781,7 @@ def button_handler(update, context):
     user_id = query.from_user.id
     data = query.data
     
-    logger.info(f"🔘 Callback: {data} от {user_id}")
+    logger.info(f"Callback: {data} от {user_id}")
     
     if data == "cancel":
         return cancel_order(user_id, query, context)
@@ -810,14 +790,14 @@ def button_handler(update, context):
         query.edit_message_text(
             f"""
 ╔══════════════════════════════════╗
-║     📤  ДОБАВЬТЕ ЕЩЕ ФАЙЛЫ  📤   ║
+║     📤  ДОБАВЬТЕ ЕЩЕ ФАЙЛЫ      ║
 ╚══════════════════════════════════╝
 
 ✨ Отправьте следующие файлы для печати
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 📌 JPG, PNG, PDF, DOC, DOCX
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 """,
             parse_mode="Markdown"
         )
@@ -836,14 +816,14 @@ def button_handler(update, context):
         query.edit_message_text(
             f"""
 ╔══════════════════════════════════╗
-║       🔄  НОВЫЙ ЗАКАЗ  🔄        ║
+║       🔄  НОВЫЙ ЗАКАЗ            ║
 ╚══════════════════════════════════╝
 
 ✨ Отправьте файлы для печати
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 📌 JPG, PNG, PDF, DOC, DOCX
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 """,
             parse_mode="Markdown"
         )
@@ -870,9 +850,9 @@ def button_handler(update, context):
 ╚══════════════════════════════════╝
 
 💰 **Цены:**
-`{format_prices[format_type]}`
+{format_prices[format_type]}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 🔢 **Сколько копий напечатать?**
 
@@ -910,16 +890,16 @@ def button_handler(update, context):
 ╚══════════════════════════════════╝
 
 💰 **Цены:**
-`{color_prices[doc_type]}`
+{color_prices[doc_type]}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 📊 **В ФАЙЛАХ:**
 ● 📸 Фото: {total_photos}
 ● 📄 Страниц: {total_pages}
 ● 📦 Всего: {total_items} ед.
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 🔢 **Сколько копий напечатать?**
 
@@ -947,7 +927,7 @@ def button_handler(update, context):
         total = 0
         total_photos_result = 0
         total_pages_result = 0
-        details = f"╔══════════════════════════════════╗\n║     💰  ДЕТАЛЬНЫЙ РАСЧЕТ  💰    ║\n╚══════════════════════════════════╝\n\n"
+        details = f"╔══════════════════════════════════╗\n║     💰  ДЕТАЛЬНЫЙ РАСЧЕТ      ║\n╚══════════════════════════════════╝\n\n"
         
         for i, f in enumerate(files, 1):
             if f['type'] == 'photo':
@@ -960,13 +940,13 @@ def button_handler(update, context):
                 price_dict = PHOTO_PRICES[session["format"]]
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
-                details += f"📸 **Файл {i}:**\n   ● {f['items']} фото × {quantity} коп.\n   ● = {f['items'] * quantity} фото → **{file_total} ₽**\n\n"
+                details += f"📸 **Файл {i}:**\n   ● {f['items']} фото × {quantity} коп.\n   ● = {f['items'] * quantity} фото → {file_total} ₽\n\n"
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
-                details += f"📄 **Файл {i}:**\n   ● {f['items']} стр. × {quantity} коп.\n   ● = {file_items} стр. → **{file_total} ₽**\n\n"
+                details += f"📄 **Файл {i}:**\n   ● {f['items']} стр. × {quantity} коп.\n   ● = {file_items} стр. → {file_total} ₽\n\n"
         
         session["total"] = total
         session["total_photos"] = total_photos_result
@@ -976,7 +956,7 @@ def button_handler(update, context):
         text = f"""
 {details}
 ╔══════════════════════════════════╗
-║     📋  ПРОВЕРЬТЕ ЗАКАЗ  📋     ║
+║     📋  ПРОВЕРЬТЕ ЗАКАЗ         ║
 ╚══════════════════════════════════╝
 
 📦 **Всего файлов:** {len(files)}
@@ -988,10 +968,10 @@ def button_handler(update, context):
         
         text += f"""
 
-💰 **ИТОГОВАЯ СУММА:** **{total} ₽**
+💰 **ИТОГОВАЯ СУММА:** {total} ₽
 ⏳ **Срок выполнения:** {session['delivery']}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 ❓ **Всё верно?**
 """
@@ -1033,14 +1013,14 @@ def button_handler(update, context):
             
             client_message = f"""
 ╔══════════════════════════════════╗
-║     🎉  ЗАКАЗ УСПЕШНО ОФОРМЛЕН!  🎉 ║
+║     🎉  ЗАКАЗ УСПЕШНО ОФОРМЛЕН! ║
 ╚══════════════════════════════════╝
 
 ✨ **Спасибо, {session['user_info']['first_name']}!** ✨
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
-🆔 **Номер заказа:** `{order_id}`
+🆔 **Номер заказа:** {order_id}
 👤 **Заказчик:** {session['user_info']['first_name']}
 📦 **Файлов:** {len(session['files'])}
 """
@@ -1054,15 +1034,15 @@ def button_handler(update, context):
             
             client_message += f"""
 
-💰 **Сумма к оплате:** **{session['total']} ₽**
+💰 **Сумма к оплате:** {session['total']} ₽
 ⏳ **Срок выполнения:** {session['delivery']}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
-📞 **Контактный телефон:** `{CONTACT_PHONE}`
+📞 **Контактный телефон:** {CONTACT_PHONE}
 🚚 **Доставка:** {DELIVERY_OPTIONS}
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 📌 **Статус:** {status_badge('new')}
 Вы будете получать уведомления при изменении статуса.
@@ -1102,7 +1082,7 @@ def button_handler(update, context):
         else:
             context.bot.send_message(
                 chat_id=user_id,
-                text="❌ Ошибка при сохранении заказа"
+                text="Ошибка при сохранении заказа"
             )
         
         for d in session.get("temp_dirs", []):
@@ -1115,12 +1095,12 @@ def button_handler(update, context):
             chat_id=user_id,
             text=f"""
 ╔══════════════════════════════════╗
-║     🤔  ХОТИТЕ ЕЩЕ ЗАКАЗ?  🤔   ║
+║     🤔  ХОТИТЕ ЕЩЕ ЗАКАЗ?       ║
 ╚══════════════════════════════════╝
 
 ✨ Нажмите кнопку ниже чтобы начать заново! ✨
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 """,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -1138,23 +1118,23 @@ def cancel_order(user_id, query=None, context=None):
                 except:
                     pass
         del user_sessions[user_id]
-        logger.info(f"✅ Сессия пользователя {user_id} очищена")
+        logger.info(f"Сессия пользователя {user_id} очищена")
     
     keyboard = [[InlineKeyboardButton("🔄 НОВЫЙ ЗАКАЗ", callback_data="new_order")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = f"""
 ╔══════════════════════════════════╗
-║        ❌  ЗАКАЗ ОТМЕНЕН  ❌      ║
+║        ❌  ЗАКАЗ ОТМЕНЕН         ║
 ╚══════════════════════════════════╝
 
 ✨ Все загруженные файлы удалены ✨
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 
 🤔 **Хотите оформить новый заказ?**
 
-Нажмите кнопку ниже чтобы начать заново! 🔄
+Нажмите кнопку ниже чтобы начать заново 🔄
 """
     
     if query:
@@ -1216,14 +1196,14 @@ def handle_quantity_input(update, context):
         update.message.reply_text(
             f"""
 ╔══════════════════════════════════╗
-║         ❌  ОШИБКА  ❌            ║
+║         ❌  ОШИБКА                ║
 ╚══════════════════════════════════╝
 
 ✨ Введите число от **1** до **1000**
 
 Или выберите из кнопок ниже:
 
-▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+{divider()}
 """,
             reply_markup=get_quantity_keyboard(),
             parse_mode="Markdown"
@@ -1487,14 +1467,14 @@ def home():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>🖨️ Print Bot Premium</title>
+        <title>Print Bot</title>
         {PREMIUM_CSS}
     </head>
     <body>
         <div class="container">
             <div class="premium-card" style="text-align: center;">
-                <h1 class="neon-text">✨ PRINT BOT PREMIUM ✨</h1>
-                <p style="color: white; font-size: 1.5em; margin-top: 20px;">Супер-премиум система печати</p>
+                <h1 class="neon-text">PRINT BOT</h1>
+                <p style="color: white; font-size: 1.5em; margin-top: 20px;">Система печати</p>
                 <div style="margin-top: 30px;">
                     <a href="/orders/" class="glow-btn">📦 ПРОСМОТР ЗАКАЗОВ</a>
                     <a href="/stats/" class="glow-btn" style="margin-left: 20px;">📊 СТАТИСТИКА</a>
@@ -1931,22 +1911,17 @@ def stats():
 # ========== HEALTH CHECK ДЛЯ RENDER ==========
 @app.route('/health')
 def health():
-    """Health check endpoint для Render"""
     return jsonify({
         "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "service": "print-bot-premium",
-        "version": "6.0"
+        "timestamp": datetime.now().isoformat()
     }), 200
 
 @app.route('/healthz')
 def healthz():
-    """Альтернативный health check"""
     return "OK", 200
 
 @app.route('/ping')
 def ping():
-    """Ping endpoint"""
     return "pong", 200
 
 @app.route('/webhook', methods=['POST'])
@@ -1970,7 +1945,7 @@ def set_webhook():
     try:
         webhook_url = f"{RENDER_URL}/webhook"
         bot.set_webhook(url=webhook_url)
-        logger.info(f"✅ Webhook manually set to {webhook_url}")
+        logger.info(f"Webhook manually set to {webhook_url}")
         return f"Webhook set to {webhook_url}", 200
     except Exception as e:
         logger.error(f"Error setting webhook: {e}")
@@ -1983,7 +1958,7 @@ def error_handler(update, context):
         if update and update.effective_chat:
             context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="❌ Произошла ошибка. Пожалуйста, попробуйте еще раз или начните заново с /start"
+                text="Произошла ошибка. Пожалуйста, попробуйте еще раз или начните заново с /start"
             )
     except:
         pass
@@ -2010,44 +1985,30 @@ def run_bot():
         
         webhook_url = f"{RENDER_URL}/webhook"
         bot.set_webhook(url=webhook_url)
-        logger.info(f"✅ Webhook установлен: {webhook_url}")
+        logger.info(f"Webhook установлен: {webhook_url}")
         
         bot_info = bot.get_me()
-        logger.info(f"✅ Бот запущен: @{bot_info.username}")
-        logger.info(f"✅ Папка заказов: {ORDERS_PATH}")
-        logger.info(f"✅ Health check доступен по адресу: {RENDER_URL}/health")
+        logger.info(f"Бот запущен: @{bot_info.username}")
+        logger.info(f"Папка заказов: {ORDERS_PATH}")
+        logger.info(f"Health check доступен по адресу: {RENDER_URL}/health")
         
         app.run(host="0.0.0.0", port=PORT)
         
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска: {e}")
+        logger.error(f"Ошибка запуска: {e}")
         logger.error(traceback.format_exc())
         sys.exit(1)
 
 if __name__ == "__main__":
-    print("""
-╔════════════════════════════════════════════════════════════════╗
-║                                                                ║
-║              ██████  ██████  ██ ███    ██ ████████             ║
-║              ██   ██ ██   ██ ██ ████   ██    ██                ║
-║              ██████  ██████  ██ ██ ██  ██    ██                ║
-║              ██      ██   ██ ██ ██  ██ ██    ██                ║
-║              ██      ██   ██ ██ ██   ████    ██                ║
-║                                                                ║
-║                                                                ║
-║                                                                ║
-║                                                                ║
-╚════════════════════════════════════════════════════════════════╝
-    """)
-    
     if not os.path.exists(ORDERS_PATH):
         os.makedirs(ORDERS_PATH, exist_ok=True)
-        logger.info(f"📁 Создана папка заказов: {ORDERS_PATH}")
+        logger.info(f"Создана папка заказов: {ORDERS_PATH}")
     
-    print(f"📁 Папка заказов: {ORDERS_PATH}")
-    print(f"🌍 Render URL: {RENDER_URL}")
-    print(f"🔗 Webhook URL: {RENDER_URL}/webhook")
-    print(f"❤️ Health check: {RENDER_URL}/health")
-    print(f"🚀 Запуск на порту: {PORT}")
+    print("Запуск Print Bot...")
+    print(f"Папка заказов: {ORDERS_PATH}")
+    print(f"Render URL: {RENDER_URL}")
+    print(f"Webhook URL: {RENDER_URL}/webhook")
+    print(f"Health check: {RENDER_URL}/health")
+    print(f"Запуск на порту: {PORT}")
     
     run_bot()

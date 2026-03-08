@@ -2,8 +2,19 @@
 # -*- coding: utf-8 -*-
 
 """
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║                                                                                  ║
+║        ░█▀▀░█▀█░█▀▄░█▀▀░█░█░░░█▀▀░█▀█░█▄█░█▀█░█░░░█▀▀░▀█▀░█▀▀░█░█░█▀▄░█▀▀░█▀▄    ║
+║        ░█░░░█░█░█░█░█▀▀░▄▀▄░░░█░░░█░█░█░█░█▀▀░█░░░█▀▀░░█░░█▀▀░█▄█░█▀▄░█▀▀░█▀▄    ║
+║        ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀░░░▀▀▀░▀▀▀░▀░▀░▀░░░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀░▀▀▀░▀░▀    ║
+║                                                                                  ║
+║                                                                                  ║
+║                                                                                  ║
+║                                                                                  ║
+╚══════════════════════════════════════════════════════════════════════════════════╝
+
 Telegram бот для печати фото и документов
-МИНИМАЛИСТИЧНЫЙ ДИЗАЙН В НОВОМ СТИЛЕ
+ПРЕМИУМ ДИЗАЙН с красивыми рамками и эмодзи
 """
 
 import os
@@ -17,7 +28,7 @@ import traceback
 import zipfile
 import threading
 from datetime import datetime
-from flask import Flask, request, send_file, render_template_string, abort
+from flask import Flask, request, send_file, render_template_string, abort, jsonify
 
 import telegram
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
@@ -122,7 +133,7 @@ def update_order_status(order_id, new_status):
                 try:
                     bot.send_message(
                         chat_id=user_id,
-                        text=f"🔔 *Статус заказа изменен*\n\n📦 Заказ: `{order_id}`\n📍 Новый статус: {get_status_display(new_status)}",
+                        text=f"🔔 **Статус вашего заказа изменен**\n\n📦 Заказ: `{order_id}`\n📍 Новый статус: {get_status_display(new_status)}",
                         parse_mode="Markdown"
                     )
                 except Exception as e:
@@ -181,44 +192,51 @@ DOC_PRICES = {
     "color": {(1, 20): 50, (21, 100): 35, (101, 300): 25, (301, float("inf")): 20},
 }
 
-# ========== НОВЫЙ МИНИМАЛИСТИЧНЫЙ ДИЗАЙН ==========
-# Стиль как в современных приложениях - чисто, просто, красиво
+# ========== ПРЕМИУМ ДИЗАЙН ДЛЯ TELEGRAM ==========
 
-def h1(text):
-    """Заголовок первого уровня"""
-    return f"🔹 **{text.upper()}** 🔹"
+def header(text, emoji="✨"):
+    """Красивый заголовок с рамкой"""
+    return f"""
+╔══════════════════════════════════╗
+║     {emoji}  {text.upper()}  {emoji}     ║
+╚══════════════════════════════════╝"""
 
-def h2(text):
-    """Заголовок второго уровня"""
-    return f"┏━━ {text} ━━┓"
+def section(text, emoji="📌"):
+    """Раздел с подчеркиванием"""
+    return f"\n{emoji}  **{text}**\n" + "▔" * 25
 
-def h3(text):
-    """Заголовок третьего уровня"""
-    return f"▸ {text} ◂"
+def point(text, emoji="●"):
+    """Пункт списка"""
+    return f"{emoji}  {text}"
 
-def p(text, emoji="•"):
-    """Параграф с эмодзи"""
-    return f"{emoji} {text}"
+def price_tag(amount):
+    """Красивое отображение цены"""
+    return f"💎  **{amount} ₽**  💎"
 
-def stat(name, value):
-    """Статистика в две колонки"""
-    return f"`{name}:` {value}"
+def status_badge(status):
+    """Красивый статус"""
+    badges = {
+        "new": "🆕 **НОВЫЙ**",
+        "processing": "🔄 **В ОБРАБОТКЕ**",
+        "printing": "🖨️ **ПЕЧАТАЕТСЯ**",
+        "ready": "✅ **ГОТОВ**",
+        "shipped": "📦 **ОТПРАВЛЕН**",
+        "delivered": "🏁 **ДОСТАВЛЕН**",
+        "cancelled": "❌ **ОТМЕНЕН**"
+    }
+    return badges.get(status, status)
 
-def price(value):
-    """Форматирование цены"""
-    return f"💎 {value} ₽"
-
-def badge(text, emoji="🏷️"):
-    """Бейдж"""
-    return f"[ {emoji} {text} ]"
+def counter(number, unit, emoji="🔢"):
+    """Счетчик"""
+    return f"{emoji}  `{number}` {unit}"
 
 def divider():
-    """Простой разделитель"""
-    return "─ ─ ─ ─ ─ ─ ─ ─ ─ ─"
+    """Разделитель"""
+    return "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
 
-def spacer():
-    """Пустая строка для отступа"""
-    return "⠀"
+def mini_divider():
+    """Маленький разделитель"""
+    return "▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹▹"
 
 # ========== ОСНОВНЫЕ ФУНКЦИИ ==========
 def calculate_price(price_dict, quantity):
@@ -245,13 +263,13 @@ def count_items_in_file(file_path, file_name):
             with open(file_path, 'rb') as f:
                 pdf = PyPDF2.PdfReader(f)
                 page_count = len(pdf.pages)
-                return page_count, "стр", "документ"
+                return page_count, "страниц", "документ"
                 
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
             paragraphs = len(doc.paragraphs)
             estimated_pages = max(1, paragraphs // 35)
-            return estimated_pages, "стр", "документ"
+            return estimated_pages, "страниц", "документ"
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
             return 1, "фото", "фото"
@@ -383,50 +401,56 @@ def send_admin_notification(order_data, order_id, order_folder):
         total_pages = sum(f['items'] for f in doc_files)
         
         admin_message = f"""
-🔔 **НОВЫЙ ЗАКАЗ**
+╔══════════════════════════════════╗
+║     🚨  НОВЫЙ ЗАКАЗ  🚨         ║
+╚══════════════════════════════════╝
 
-👤 {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})
-🆔 `{order_data['user_info']['user_id']}`
+👤 **Клиент:** {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})
+🆔 **ID:** `{order_data['user_info']['user_id']}`
 
-📦 Параметры:"""
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+📦 **Параметры:**
+▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔"""
         
         if order_data['type'] == 'photo':
             format_names = {"small": "Малый", "medium": "Средний", "large": "Большой"}
-            admin_message += f"\n   Тип: 📸 Фото ({format_names[order_data['format']]})"
+            admin_message += f"\n📸 Тип: Фото ({format_names[order_data['format']]})"
         else:
             color_names = {"bw": "Ч/Б", "color": "Цветная"}
-            admin_message += f"\n   Тип: 📄 Документы ({color_names[order_data['color']]})"
+            admin_message += f"\n📄 Тип: Документы ({color_names[order_data['color']]})"
         
         admin_message += f"""
-   Копий: {order_data['quantity']}
-   Файлов: {len(order_data['files'])}"""
+📦 Копий: {order_data['quantity']}
+📁 Файлов: {len(order_data['files'])}"""
         
         if photo_files:
-            admin_message += f"\n   📸 Фото: {len(photo_files)} файлов, {total_photos} шт."
+            admin_message += f"\n📸 Фото: {len(photo_files)} файлов, {total_photos} шт."
         if doc_files:
-            admin_message += f"\n   📄 Документы: {len(doc_files)} файлов, {total_pages} стр."
+            admin_message += f"\n📄 Документы: {len(doc_files)} файлов, {total_pages} стр."
         
         admin_message += f"""
 
-💰 Сумма: {order_data['total']} ₽
-⏱️ Срок: {order_data['delivery']}
+💰 **Сумма:** {order_data['total']} ₽
+⏱️ **Срок:** {order_data['delivery']}
 
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 🔗 {order_url}"""
         
         if bot:
             bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=admin_message
+                text=admin_message,
+                parse_mode="Markdown"
             )
             logger.info(f"✅ Уведомление отправлено админу {ADMIN_CHAT_ID}")
             
     except Exception as e:
         logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
 
-# ========== ФУНКЦИИ TELEGRAM С НОВЫМ МИНИМАЛИСТИЧНЫМ ДИЗАЙНОМ ==========
+# ========== ФУНКЦИИ TELEGRAM ==========
 
 def start(update, context):
-    """Команда /start с минималистичным дизайном"""
+    """Команда /start с премиум дизайном"""
     user = update.effective_user
     user_id = user.id
     logger.info(f"✅ /start от {user_id}")
@@ -438,39 +462,45 @@ def start(update, context):
         del user_sessions[user_id]
     
     welcome = f"""
-🔹 **ПРИВЕТСТВУЕМ** 🔹
+╔══════════════════════════════════╗
+║     ✨  ДОБРО ПОЖАЛОВАТЬ  ✨     ║
+╚══════════════════════════════════╝
 
-👋 Привет, {user.first_name}!
+✨ **Привет, {user.first_name}!** ✨
 
-┏━━ ВОЗМОЖНОСТИ ━━┓
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+⚡️ **PRINT BOT PREMIUM** ⚡️
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-📸 Фото (JPG, PNG)
-   └ 3 формата, гибкие цены
+📌 **МОИ ВОЗМОЖНОСТИ:**
 
-📄 Документы (PDF, DOC, DOCX)
-   └ Ч/б и цветная печать
+📸 **Фото** (JPG, PNG)
+   ● 3 формата на выбор
+   ● Гибкая система скидок
 
-📦 Пакетная загрузка
-   └ До 10 файлов за раз
+📄 **Документы** (PDF, DOC, DOCX)
+   ● Ч/б и цветная печать
+   ● Автоподсчет страниц
 
-💰 Мгновенный расчет
-   └ Со всеми скидками
+📦 **Пакетная загрузка**
+   ● До 10 файлов за раз
+   ● Мгновенный расчет
 
-┗━━━━━━━━━━━━━━┛
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-📞 Контакт: `{CONTACT_PHONE}`
-🚚 Доставка: {DELIVERY_OPTIONS}
+📞 **Контакты:** `{CONTACT_PHONE}`
+🚚 **Доставка:** {DELIVERY_OPTIONS}
 
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-⬇️ Отправьте файлы для печати ⬇️
+⬇️ **Отправьте файлы для печати** ⬇️
 """
     
     update.message.reply_text(welcome, parse_mode="Markdown")
     return WAITING_FOR_FILE
 
 def process_single_file(update, context):
-    """Обработка файла с минималистичным дизайном"""
+    """Обработка файла с премиум дизайном"""
     user_id = update.effective_user.id
     message = update.message
     
@@ -502,18 +532,22 @@ def process_single_file(update, context):
             file_type = "doc"
         else:
             error_msg = f"""
-🔹 **ОШИБКА ФОРМАТА** 🔹
+╔══════════════════════════════════╗
+║        ❌  ОШИБКА ФОРМАТА  ❌     ║
+╚══════════════════════════════════╝
 
-❌ Неподдерживаемый формат
+✨ Неподдерживаемый формат файла
 
-┏━━ ДОПУСТИМО ━━┓
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+📌 **ДОПУСТИМЫЕ ФОРМАТЫ:**
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-📸 JPG, PNG
-📄 PDF, DOC, DOCX
+📸 **Фото:** `JPG`, `PNG`
+📄 **Документы:** `PDF`, `DOC`, `DOCX`
 
-┗━━━━━━━━━━━━━━┛
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-Попробуйте еще раз 🔄
+Попробуйте еще раз! 🔄
 """
             message.reply_text(error_msg, parse_mode="Markdown")
             return WAITING_FOR_FILE
@@ -554,12 +588,17 @@ def process_single_file(update, context):
     total_pages = user_sessions[user_id]["total_pages"]
     
     text = f"""
-🔹 **ФАЙЛ ДОБАВЛЕН** 🔹
+╔══════════════════════════════════╗
+║     ✅  ФАЙЛ УСПЕШНО ДОБАВЛЕН  ✅ ║
+╚══════════════════════════════════╝
 
-📄 `{file_name[:40]}{'...' if len(file_name) > 40 else ''}`
-   └ {'📸 Фото' if file_type == 'photo' else '📄 Документ'} · {items} {unit}
+📄 **Файл:** `{file_name[:40]}{'...' if len(file_name) > 40 else ''}`
+📦 **Тип:** {'📸 Фото' if file_type == 'photo' else '📄 Документ'}
+🔢 **Количество:** `{items}` {unit}
 
-┏━━ СТАТИСТИКА ━━┓
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+📊 **ТЕКУЩАЯ СТАТИСТИКА**
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 """
     
     if photo_count > 0:
@@ -572,10 +611,10 @@ def process_single_file(update, context):
         text += f"\n📄 Всего страниц: {total_pages}"
     text += f"\n📦 Всего файлов: {files_count}"
     
-    text += f"\n┗━━━━━━━━━━━━━━┛\n\n"
+    text += f"\n\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n"
     
     if doc_count > 0:
-        text += "▸ Выберите тип печати:"
+        text += "\n📋 **Выберите тип печати:**"
         keyboard = [
             [InlineKeyboardButton("⚫ ЧЕРНО-БЕЛАЯ", callback_data="doc_bw")],
             [InlineKeyboardButton("🎨 ЦВЕТНАЯ", callback_data="doc_color")],
@@ -583,7 +622,7 @@ def process_single_file(update, context):
             [InlineKeyboardButton("❌ ОТМЕНА", callback_data="cancel")]
         ]
     else:
-        text += "▸ Выберите формат печати:"
+        text += "\n🖼️ **Выберите формат печати:**"
         keyboard = [
             [InlineKeyboardButton("🖼 МАЛЫЙ (A6)", callback_data="photo_small")],
             [InlineKeyboardButton("🖼 СРЕДНИЙ (13x18)", callback_data="photo_medium")],
@@ -648,7 +687,6 @@ def process_media_group(user_id, media_group_id, context):
         
         doc_count = 0
         photo_count = 0
-        success_count = 0
         
         for message in messages:
             file_obj = None
@@ -679,7 +717,6 @@ def process_media_group(user_id, media_group_id, context):
             if not file_path:
                 continue
             
-            success_count += 1
             items, unit, type_name = count_items_in_file(file_path, file_name)
             
             file_info = {
@@ -710,10 +747,14 @@ def process_media_group(user_id, media_group_id, context):
         total_pages = user_sessions[user_id]["total_pages"]
         
         text = f"""
-🔹 **ЗАГРУЖЕНО {files_count} ФАЙЛОВ** 🔹
+╔══════════════════════════════════╗
+║   ✅  ЗАГРУЖЕНО {files_count} ФАЙЛОВ  ✅   ║
+╚══════════════════════════════════╝
 
-┏━━ СТАТИСТИКА ━━┓
-"""
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+📊 **СТАТИСТИКА**
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"""
+        
         if photo_count > 0:
             text += f"\n📸 Фото: {photo_count}"
         if doc_count > 0:
@@ -723,10 +764,10 @@ def process_media_group(user_id, media_group_id, context):
         if total_pages > 0:
             text += f"\n📄 Всего страниц: {total_pages}"
         
-        text += f"\n┗━━━━━━━━━━━━━━┛\n\n"
+        text += f"\n\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n"
         
         if doc_count > 0:
-            text += "▸ Выберите тип печати:"
+            text += "\n📋 **Выберите тип печати:**"
             keyboard = [
                 [InlineKeyboardButton("⚫ ЧЕРНО-БЕЛАЯ", callback_data="doc_bw")],
                 [InlineKeyboardButton("🎨 ЦВЕТНАЯ", callback_data="doc_color")],
@@ -734,7 +775,7 @@ def process_media_group(user_id, media_group_id, context):
                 [InlineKeyboardButton("❌ ОТМЕНА", callback_data="cancel")]
             ]
         else:
-            text += "▸ Выберите формат печати:"
+            text += "\n🖼️ **Выберите формат печати:**"
             keyboard = [
                 [InlineKeyboardButton("🖼 МАЛЫЙ (A6)", callback_data="photo_small")],
                 [InlineKeyboardButton("🖼 СРЕДНИЙ (13x18)", callback_data="photo_medium")],
@@ -768,13 +809,15 @@ def button_handler(update, context):
     if data == "add_more":
         query.edit_message_text(
             f"""
-🔹 **ДОБАВЬТЕ ЕЩЕ** 🔹
+╔══════════════════════════════════╗
+║     📤  ДОБАВЬТЕ ЕЩЕ ФАЙЛЫ  📤   ║
+╚══════════════════════════════════╝
 
-📤 Отправьте следующие файлы
+✨ Отправьте следующие файлы для печати
 
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─
-
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 📌 JPG, PNG, PDF, DOC, DOCX
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 """,
             parse_mode="Markdown"
         )
@@ -792,13 +835,15 @@ def button_handler(update, context):
         
         query.edit_message_text(
             f"""
-🔹 **НОВЫЙ ЗАКАЗ** 🔹
+╔══════════════════════════════════╗
+║       🔄  НОВЫЙ ЗАКАЗ  🔄        ║
+╚══════════════════════════════════╝
 
-🔄 Начнем заново
+✨ Отправьте файлы для печати
 
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─
-
-📌 Отправьте файлы для печати
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
+📌 JPG, PNG, PDF, DOC, DOCX
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 """,
             parse_mode="Markdown"
         )
@@ -809,25 +854,29 @@ def button_handler(update, context):
             return cancel_order(user_id, query, context)
         
         format_type = data.split("_")[1]
-        format_names = {"small": "МАЛЫЙ (A6)", "medium": "СРЕДНИЙ (13x18)", "large": "БОЛЬШОЙ (A4)"}
+        format_names = {"small": "МАЛЫЙ (A6/10x15)", "medium": "СРЕДНИЙ (13x18/15x21)", "large": "БОЛЬШОЙ (A4/21x30)"}
+        format_prices = {
+            "small": "1-9: 35₽ | 10-50: 28₽ | 51-100: 23₽ | 101+: 18₽",
+            "medium": "1-9: 65₽ | 10-50: 55₽ | 51-100: 45₽ | 101+: 35₽",
+            "large": "1-4: 200₽ | 5-20: 170₽ | 21-50: 150₽ | 51+: 120₽"
+        }
         
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = format_type
         
         text = f"""
-🔹 **{format_names[format_type]}** 🔹
+╔══════════════════════════════════╗
+║     🖼️  {format_names[format_type]}  🖼️     ║
+╚══════════════════════════════════╝
 
-💰 Цены:
-   1-9: 35₽
-   10-50: 28₽
-   51-100: 23₽
-   101+: 18₽
+💰 **Цены:**
+`{format_prices[format_type]}`
 
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-🔢 Сколько копий?
+🔢 **Сколько копий напечатать?**
 
-Введите число или выберите ниже:
+Введите число или выберите из вариантов ниже:
 """
         
         query.edit_message_text(
@@ -843,33 +892,38 @@ def button_handler(update, context):
         
         doc_type = data.split("_")[1]
         color_names = {"bw": "ЧЕРНО-БЕЛАЯ", "color": "ЦВЕТНАЯ"}
+        color_prices = {
+            "bw": "1-20: 25₽ | 21-100: 18₽ | 101-300: 14₽ | 301+: 10₽",
+            "color": "1-20: 50₽ | 21-100: 35₽ | 101-300: 25₽ | 301+: 20₽"
+        }
         
         user_sessions[user_id]["type"] = "doc"
         user_sessions[user_id]["color"] = doc_type
         
         total_photos = user_sessions[user_id]["total_photos"]
         total_pages = user_sessions[user_id]["total_pages"]
-        
-        prices = {
-            "bw": "   1-20: 25₽\n   21-100: 18₽\n   101-300: 14₽\n   301+: 10₽",
-            "color": "   1-20: 50₽\n   21-100: 35₽\n   101-300: 25₽\n   301+: 20₽"
-        }
+        total_items = total_photos + total_pages
         
         text = f"""
-🔹 **{color_names[doc_type]}** 🔹
+╔══════════════════════════════════╗
+║     📄  {color_names[doc_type]}  📄      ║
+╚══════════════════════════════════╝
 
-💰 Цены:
-{prices[doc_type]}
+💰 **Цены:**
+`{color_prices[doc_type]}`
 
-📊 В файлах:
-   📸 Фото: {total_photos}
-   📄 Страниц: {total_pages}
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+📊 **В ФАЙЛАХ:**
+● 📸 Фото: {total_photos}
+● 📄 Страниц: {total_pages}
+● 📦 Всего: {total_items} ед.
 
-🔢 Сколько копий?
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-Введите число или выберите ниже:
+🔢 **Сколько копий напечатать?**
+
+Введите число или выберите из вариантов ниже:
 """
         
         query.edit_message_text(
@@ -893,7 +947,7 @@ def button_handler(update, context):
         total = 0
         total_photos_result = 0
         total_pages_result = 0
-        details = f"🔹 **РАСЧЕТ** 🔹\n\n"
+        details = f"╔══════════════════════════════════╗\n║     💰  ДЕТАЛЬНЫЙ РАСЧЕТ  💰    ║\n╚══════════════════════════════════╝\n\n"
         
         for i, f in enumerate(files, 1):
             if f['type'] == 'photo':
@@ -906,13 +960,13 @@ def button_handler(update, context):
                 price_dict = PHOTO_PRICES[session["format"]]
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
-                details += f"📸 Файл {i}:\n   {f['items']} фото × {quantity} = {f['items'] * quantity} фото → {file_total}₽\n\n"
+                details += f"📸 **Файл {i}:**\n   ● {f['items']} фото × {quantity} коп.\n   ● = {f['items'] * quantity} фото → **{file_total} ₽**\n\n"
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
-                details += f"📄 Файл {i}:\n   {f['items']} стр. × {quantity} = {file_items} стр. → {file_total}₽\n\n"
+                details += f"📄 **Файл {i}:**\n   ● {f['items']} стр. × {quantity} коп.\n   ● = {file_items} стр. → **{file_total} ₽**\n\n"
         
         session["total"] = total
         session["total_photos"] = total_photos_result
@@ -921,28 +975,30 @@ def button_handler(update, context):
         
         text = f"""
 {details}
-┏━━ ИТОГО ━━┓
+╔══════════════════════════════════╗
+║     📋  ПРОВЕРЬТЕ ЗАКАЗ  📋     ║
+╚══════════════════════════════════╝
 
-📦 Файлов: {len(files)}
+📦 **Всего файлов:** {len(files)}
 """
         if total_photos_result > 0:
-            text += f"\n📸 Фото: {total_photos_result}"
+            text += f"\n📸 **Фото к печати:** {total_photos_result}"
         if total_pages_result > 0:
-            text += f"\n📄 Страниц: {total_pages_result}"
+            text += f"\n📄 **Страниц к печати:** {total_pages_result}"
         
         text += f"""
 
-💰 Сумма: {total} ₽
-⏱️ Срок: {session['delivery']}
+💰 **ИТОГОВАЯ СУММА:** **{total} ₽**
+⏳ **Срок выполнения:** {session['delivery']}
 
-┗━━━━━━━━━━┛
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-❓ Всё верно?
+❓ **Всё верно?**
 """
         
         keyboard = [
-            [InlineKeyboardButton("✅ ДА", callback_data="confirm"),
-             InlineKeyboardButton("❌ НЕТ", callback_data="cancel")]
+            [InlineKeyboardButton("✅ ДА, ПОДТВЕРДИТЬ", callback_data="confirm"),
+             InlineKeyboardButton("❌ НЕТ, ОТМЕНИТЬ", callback_data="cancel")]
         ]
         
         query.message.delete()
@@ -976,35 +1032,44 @@ def button_handler(update, context):
             total_pages = sum(f['items'] for f in doc_files)
             
             client_message = f"""
-🔹 **ЗАКАЗ ОФОРМЛЕН** 🔹
+╔══════════════════════════════════╗
+║     🎉  ЗАКАЗ УСПЕШНО ОФОРМЛЕН!  🎉 ║
+╚══════════════════════════════════╝
 
-✨ Спасибо, {session['user_info']['first_name']}!
+✨ **Спасибо, {session['user_info']['first_name']}!** ✨
 
-┏━━ ДЕТАЛИ ━━┓
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-🆔 `{order_id}`
-📦 Файлов: {len(session['files'])}
+🆔 **Номер заказа:** `{order_id}`
+👤 **Заказчик:** {session['user_info']['first_name']}
+📦 **Файлов:** {len(session['files'])}
 """
             
             if total_photos > 0:
-                client_message += f"\n📸 Фото: {total_photos} → {total_photos * session['quantity']}"
+                client_message += f"\n📸 **Фото в оригинале:** {total_photos}"
+                client_message += f"\n📸 **Фото к печати:** {total_photos * session['quantity']}"
             if total_pages > 0:
-                client_message += f"\n📄 Страниц: {total_pages} → {total_pages * session['quantity']}"
+                client_message += f"\n📄 **Страниц в оригинале:** {total_pages}"
+                client_message += f"\n📄 **Страниц к печати:** {total_pages * session['quantity']}"
             
             client_message += f"""
 
-💰 {session['total']} ₽
-⏱️ {session['delivery']}
+💰 **Сумма к оплате:** **{session['total']} ₽**
+⏳ **Срок выполнения:** {session['delivery']}
 
-┗━━━━━━━━━━┛
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-📞 {CONTACT_PHONE}
-🚚 {DELIVERY_OPTIONS}
+📞 **Контактный телефон:** `{CONTACT_PHONE}`
+🚚 **Доставка:** {DELIVERY_OPTIONS}
 
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-📍 Статус: {get_status_display('new')}
-Вы получите уведомление при изменении
+📌 **Статус:** {status_badge('new')}
+Вы будете получать уведомления при изменении статуса.
+
+╔══════════════════════════════════╗
+║        ✨  СПАСИБО!  ✨          ║
+╚══════════════════════════════════╝
 """
             
             context.bot.send_message(
@@ -1021,7 +1086,7 @@ def button_handler(update, context):
                             if i == 0:
                                 media_group.append(InputMediaPhoto(
                                     photo.read(),
-                                    caption=f"📸 Загружено фото: {len(photo_files)} шт."
+                                    caption=f"📸 Загруженные фото ({len(photo_files)} шт.)"
                                 ))
                             else:
                                 media_group.append(InputMediaPhoto(photo.read()))
@@ -1049,11 +1114,13 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=f"""
-🔹 **ЕЩЕ ЗАКАЗ?** 🔹
+╔══════════════════════════════════╗
+║     🤔  ХОТИТЕ ЕЩЕ ЗАКАЗ?  🤔   ║
+╚══════════════════════════════════╝
 
-✨ Хотите оформить еще один?
+✨ Нажмите кнопку ниже чтобы начать заново! ✨
 
-Нажмите кнопку ниже чтобы начать заново
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 """,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
@@ -1077,13 +1144,17 @@ def cancel_order(user_id, query=None, context=None):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     message = f"""
-🔹 **ЗАКАЗ ОТМЕНЕН** 🔹
+╔══════════════════════════════════╗
+║        ❌  ЗАКАЗ ОТМЕНЕН  ❌      ║
+╚══════════════════════════════════╝
 
-❌ Все файлы удалены
+✨ Все загруженные файлы удалены ✨
 
-─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 
-🤔 Хотите начать заново?
+🤔 **Хотите оформить новый заказ?**
+
+Нажмите кнопку ниже чтобы начать заново! 🔄
 """
     
     if query:
@@ -1108,22 +1179,30 @@ def cancel_order(user_id, query=None, context=None):
     return WAITING_FOR_FILE
 
 def handle_file(update, context):
-    if update.message.media_group_id:
+    user_id = update.effective_user.id
+    message = update.message
+    
+    if message.media_group_id:
         return handle_media_group(update, context)
+    
     return process_single_file(update, context)
 
 def get_quantity_keyboard():
     keyboard = [
-        [InlineKeyboardButton("1", callback_data="qty_1"), 
-         InlineKeyboardButton("2", callback_data="qty_2"),
-         InlineKeyboardButton("3", callback_data="qty_3"), 
-         InlineKeyboardButton("4", callback_data="qty_4"),
-         InlineKeyboardButton("5", callback_data="qty_5")],
-        [InlineKeyboardButton("10", callback_data="qty_10"), 
-         InlineKeyboardButton("20", callback_data="qty_20"),
-         InlineKeyboardButton("30", callback_data="qty_30"), 
-         InlineKeyboardButton("50", callback_data="qty_50"),
-         InlineKeyboardButton("100", callback_data="qty_100")],
+        [InlineKeyboardButton("1️⃣", callback_data="qty_1"), 
+         InlineKeyboardButton("2️⃣", callback_data="qty_2"),
+         InlineKeyboardButton("3️⃣", callback_data="qty_3"), 
+         InlineKeyboardButton("4️⃣", callback_data="qty_4"),
+         InlineKeyboardButton("5️⃣", callback_data="qty_5")],
+        [InlineKeyboardButton("🔟", callback_data="qty_10"), 
+         InlineKeyboardButton("2️⃣0️⃣", callback_data="qty_20"),
+         InlineKeyboardButton("3️⃣0️⃣", callback_data="qty_30"), 
+         InlineKeyboardButton("5️⃣0️⃣", callback_data="qty_50"),
+         InlineKeyboardButton("1️⃣0️⃣0️⃣", callback_data="qty_100")],
+        [InlineKeyboardButton("2️⃣0️⃣0️⃣", callback_data="qty_200"), 
+         InlineKeyboardButton("3️⃣0️⃣0️⃣", callback_data="qty_300"),
+         InlineKeyboardButton("4️⃣0️⃣0️⃣", callback_data="qty_400"), 
+         InlineKeyboardButton("5️⃣0️⃣0️⃣", callback_data="qty_500")],
         [InlineKeyboardButton("❌ ОТМЕНА", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -1136,11 +1215,15 @@ def handle_quantity_input(update, context):
     if not quantity or quantity < 1 or quantity > 1000:
         update.message.reply_text(
             f"""
-🔹 **ОШИБКА** 🔹
+╔══════════════════════════════════╗
+║         ❌  ОШИБКА  ❌            ║
+╚══════════════════════════════════╝
 
-❌ Введите число от 1 до 1000
+✨ Введите число от **1** до **1000**
 
 Или выберите из кнопок ниже:
+
+▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰
 """,
             reply_markup=get_quantity_keyboard(),
             parse_mode="Markdown"
@@ -1156,70 +1239,236 @@ def handle_quantity_input(update, context):
     })
     return button_handler(update, context)
 
-# ========== ВЕБ-ИНТЕРФЕЙС (МИНИМАЛИСТИЧНЫЙ) ==========
+# ========== ВЕБ-ИНТЕРФЕЙС ==========
 
-CSS = """
+PREMIUM_CSS = """
 <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap');
+    
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+    
     body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: #f5f5f5;
+        font-family: 'Poppins', sans-serif;
+        background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+        background-size: 400% 400%;
+        animation: gradientBG 15s ease infinite;
+        min-height: 100vh;
         padding: 20px;
     }
-    .container { max-width: 1200px; margin: 0 auto; }
-    .card {
-        background: white;
-        border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 20px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    
+    @keyframes gradientBG {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
     }
-    h1 { font-size: 2em; margin-bottom: 20px; color: #333; }
-    .stats {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 20px;
+    
+    .container {
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+    
+    .premium-card {
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(20px);
+        border-radius: 50px;
+        padding: 40px;
         margin-bottom: 30px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.5);
+        transform: perspective(1000px) rotateX(1deg);
+        transition: all 0.5s;
+        animation: float 6s ease-in-out infinite;
     }
-    .stat {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    
+    .premium-card:hover {
+        transform: perspective(1000px) rotateX(2deg) translateY(-10px);
+        box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.7);
     }
-    .stat-value { font-size: 2em; font-weight: bold; color: #007AFF; }
-    .order {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        margin-bottom: 15px;
-        border: 1px solid #eee;
+    
+    @keyframes float {
+        0%, 100% { transform: perspective(1000px) rotateX(1deg) translateY(0); }
+        50% { transform: perspective(1000px) rotateX(1.5deg) translateY(-10px); }
     }
-    .btn {
-        background: #007AFF;
+    
+    .neon-text {
+        font-size: 3.5em;
+        font-weight: 800;
+        color: #fff;
+        text-shadow: 0 0 10px #fff, 0 0 20px #fff, 0 0 40px #fff, 0 0 80px #0ff;
+        animation: neonPulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes neonPulse {
+        0%, 100% { text-shadow: 0 0 10px #fff, 0 0 20px #fff, 0 0 40px #fff, 0 0 80px #0ff; }
+        50% { text-shadow: 0 0 20px #fff, 0 0 40px #fff, 0 0 80px #fff, 0 0 160px #f0f; }
+    }
+    
+    .glow-btn {
+        background: linear-gradient(45deg, #ff6b6b, #feca57, #48dbfb, #1dd1a1);
+        background-size: 300% 300%;
         color: white;
         border: none;
-        padding: 10px 20px;
-        border-radius: 8px;
+        padding: 15px 30px;
+        border-radius: 50px;
+        font-weight: 600;
+        font-size: 1.1em;
+        cursor: pointer;
+        transition: all 0.3s;
+        box-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        animation: gradientShift 3s ease infinite;
         text-decoration: none;
         display: inline-block;
-        font-size: 14px;
     }
-    .status {
+    
+    .glow-btn:hover {
+        transform: scale(1.1) rotate(2deg);
+        box-shadow: 0 0 40px rgba(255, 255, 255, 0.8);
+    }
+    
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    .order-card {
+        background: white;
+        border-radius: 40px;
+        overflow: hidden;
+        margin-bottom: 30px;
+        box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.4);
+        transform: perspective(1000px) rotateX(0deg);
+        transition: all 0.5s;
+        position: relative;
+    }
+    
+    .order-card:hover {
+        transform: perspective(1000px) rotateX(2deg) translateY(-15px) scale(1.02);
+        box-shadow: 0 50px 100px -30px rgba(0, 0, 0, 0.6);
+    }
+    
+    .order-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 30px;
+    }
+    
+    .status-badge {
         display: inline-block;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 12px;
-        font-weight: 500;
+        padding: 8px 20px;
+        border-radius: 50px;
+        font-weight: 600;
+        font-size: 0.9em;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: white;
     }
-    .status-new { background: #E3F2FD; color: #1976D2; }
-    .status-processing { background: #FFF3E0; color: #F57C00; }
-    .status-printing { background: #E8F5E9; color: #388E3C; }
-    .status-ready { background: #F3E5F5; color: #7B1FA2; }
-    .status-shipped { background: #E1F5FE; color: #0288D1; }
-    .status-delivered { background: #E8F5E9; color: #2E7D32; }
-    .status-cancelled { background: #FFEBEE; color: #D32F2F; }
+    
+    .status-new { background: #4CAF50; box-shadow: 0 0 20px #4CAF50; }
+    .status-processing { background: #FF9800; box-shadow: 0 0 20px #FF9800; }
+    .status-printing { background: #2196F3; box-shadow: 0 0 20px #2196F3; }
+    .status-ready { background: #9C27B0; box-shadow: 0 0 20px #9C27B0; }
+    .status-shipped { background: #3F51B5; box-shadow: 0 0 20px #3F51B5; }
+    .status-delivered { background: #009688; box-shadow: 0 0 20px #009688; }
+    .status-cancelled { background: #f44336; box-shadow: 0 0 20px #f44336; }
+    
+    .photo-gallery {
+        display: flex;
+        gap: 20px;
+        overflow-x: auto;
+        padding: 20px 0;
+    }
+    
+    .photo-preview {
+        width: 150px;
+        height: 150px;
+        object-fit: cover;
+        border-radius: 30px;
+        cursor: pointer;
+        transition: all 0.5s;
+        border: 4px solid white;
+        box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.4);
+    }
+    
+    .photo-preview:hover {
+        transform: perspective(500px) rotateY(10deg) scale(1.1);
+        box-shadow: 0 30px 60px -10px rgba(0, 0, 0, 0.6);
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 30px;
+        margin-bottom: 40px;
+    }
+    
+    .stat-card {
+        background: rgba(255, 255, 255, 0.15);
+        backdrop-filter: blur(10px);
+        border-radius: 40px;
+        padding: 30px;
+        text-align: center;
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        transition: all 0.5s;
+    }
+    
+    .stat-card:hover {
+        transform: translateY(-15px) scale(1.05);
+        box-shadow: 0 40px 80px -20px rgba(0, 0, 0, 0.5);
+    }
+    
+    .stat-icon {
+        font-size: 4em;
+        margin-bottom: 20px;
+        animation: bounce 2s ease-in-out infinite;
+    }
+    
+    @keyframes bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-15px); }
+    }
+    
+    .stat-value {
+        font-size: 3em;
+        font-weight: 800;
+        margin-bottom: 10px;
+        text-shadow: 0 0 20px rgba(255,255,255,0.5);
+    }
+    
+    .stat-label {
+        font-size: 1.1em;
+        opacity: 0.9;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 100px;
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(20px);
+        border-radius: 60px;
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+    
+    .empty-icon {
+        font-size: 8em;
+        margin-bottom: 30px;
+        animation: float 3s ease-in-out infinite;
+    }
+    
+    @media (max-width: 768px) {
+        .premium-card { padding: 25px; }
+        .neon-text { font-size: 2.5em; }
+        .stats-grid { grid-template-columns: 1fr; }
+        .photo-preview { width: 100px; height: 100px; }
+    }
 </style>
 """
 
@@ -1234,29 +1483,50 @@ def home():
     
     html = f"""
     <!DOCTYPE html>
-    <html>
+    <html lang="ru">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Print Bot</title>
-        {CSS}
+        <title>🖨️ Print Bot Premium</title>
+        {PREMIUM_CSS}
     </head>
     <body>
         <div class="container">
-            <div class="card">
-                <h1>🖨️ Print Bot</h1>
-                <div class="stats">
-                    <div class="stat"><div class="stat-value">{orders_count}</div>заказов</div>
-                    <div class="stat"><div class="stat-value">{total_revenue} ₽</div>выручка</div>
-                    <div class="stat"><div class="stat-value">{total_photos}</div>фото</div>
-                    <div class="stat"><div class="stat-value">{total_pages}</div>страниц</div>
+            <div class="premium-card" style="text-align: center;">
+                <h1 class="neon-text">✨ PRINT BOT PREMIUM ✨</h1>
+                <p style="color: white; font-size: 1.5em; margin-top: 20px;">Супер-премиум система печати</p>
+                <div style="margin-top: 30px;">
+                    <a href="/orders/" class="glow-btn">📦 ПРОСМОТР ЗАКАЗОВ</a>
+                    <a href="/stats/" class="glow-btn" style="margin-left: 20px;">📊 СТАТИСТИКА</a>
                 </div>
-                <a href="/orders/" class="btn">📦 Все заказы</a>
-                <a href="/stats/" class="btn" style="margin-left: 10px;">📊 Статистика</a>
             </div>
             
-            <div class="card">
-                <h2>Последние заказы</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📦</div>
+                    <div class="stat-value">{orders_count}</div>
+                    <div class="stat-label">Активных заказов</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-value">{total_revenue} ₽</div>
+                    <div class="stat-label">Выручка</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📸</div>
+                    <div class="stat-value">{total_photos}</div>
+                    <div class="stat-label">Напечатано фото</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">📄</div>
+                    <div class="stat-value">{total_pages}</div>
+                    <div class="stat-label">Напечатано страниц</div>
+                </div>
+            </div>
+            
+            <div class="premium-card">
+                <h2 style="color: white; font-size: 2.5em; margin-bottom: 30px;">🔥 ПОСЛЕДНИЕ ЗАКАЗЫ</h2>
+                <div style="display: grid; gap: 20px;">
     """
     
     for order in sorted(history, key=lambda x: x.get('date', ''), reverse=True)[:5]:
@@ -1264,24 +1534,37 @@ def home():
         status_text = get_status_display(order.get('status', 'new'))
         
         html += f"""
-                <div class="order">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span>🆔 {order.get('order_id', 'N/A')[:12]}...</span>
-                        <span class="status {status_class}">{status_text}</span>
+                    <div class="order-card" style="background: rgba(255,255,255,0.95); padding: 25px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3>🆔 {order.get('order_id', 'N/A')[:10]}...</h3>
+                                <p style="color: #666;">👤 {order.get('user_name', 'Неизвестно')}</p>
+                            </div>
+                            <span class="status-badge {status_class}">{status_text}</span>
+                        </div>
+                        <div style="margin-top: 15px;">
+                            <span>📸 {order.get('total_photos', 0)} фото</span> | 
+                            <span>📄 {order.get('total_pages', 0)} стр.</span> | 
+                            <span>💰 {order.get('total_price', 0)} ₽</span>
+                        </div>
+                        <a href="/orders/{order.get('order_id')}/" style="display: inline-block; margin-top: 15px; color: #667eea;">Подробнее →</a>
                     </div>
-                    <div style="margin-top: 10px; color: #666;">
-                        👤 {order.get('user_name', 'Неизвестно')} · 📸 {order.get('total_photos', 0)} фото · 📄 {order.get('total_pages', 0)} стр. · 💰 {order.get('total_price', 0)} ₽
-                    </div>
-                    <a href="/orders/{order.get('order_id')}/" style="display: inline-block; margin-top: 10px; color: #007AFF;">Подробнее →</a>
-                </div>
         """
     
     html += """
+                </div>
             </div>
             
-            <div class="card" style="text-align: center;">
-                <p>📞 Контактный телефон: <strong>89219805705</strong></p>
-                <p style="color: #666; margin-top: 10px;">🚀 Самовывоз СПб | 📦 СДЭК | 🚚 Яндекс</p>
+            <div class="premium-card" style="text-align: center;">
+                <h2 style="color: white; font-size: 2em; margin-bottom: 20px;">🤖 О БОТЕ</h2>
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; color: white;">
+                    <div><div style="font-size: 3em;">📸</div><h3>Фото</h3><p>JPG, PNG<br>3 формата</p></div>
+                    <div><div style="font-size: 3em;">📄</div><h3>Документы</h3><p>PDF, DOC, DOCX<br>Ч/б и цветная</p></div>
+                    <div><div style="font-size: 3em;">🚚</div><h3>Доставка</h3><p>Самовывоз, СДЭК, Яндекс</p></div>
+                </div>
+                <div style="margin-top: 40px;">
+                    <p style="color: white; font-size: 1.3em;">📞 {CONTACT_PHONE}</p>
+                </div>
             </div>
         </div>
     </body>
@@ -1327,19 +1610,18 @@ def list_orders():
     <!DOCTYPE html>
     <html>
     <head>
-        <meta charset="UTF-8">
-        <title>Заказы | Print Bot</title>
-        {CSS}
+        <title>📦 Все заказы | Print Bot</title>
+        {PREMIUM_CSS}
     </head>
     <body>
         <div class="container">
-            <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h1>📦 Все заказы</h1>
-                    <a href="/" class="btn">← На главную</a>
+            <div class="premium-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h1 class="neon-text" style="font-size: 2.5em;">📦 ВСЕ ЗАКАЗЫ</h1>
+                    <a href="/" class="glow-btn">🏠 НА ГЛАВНУЮ</a>
                 </div>
                 
-                <div style="margin-top: 20px;">
+                <div style="display: grid; gap: 30px;">
     """
     
     for order in orders:
@@ -1347,13 +1629,19 @@ def list_orders():
         status_text = get_status_display(order['status'])
         
         html += f"""
-                    <div class="order">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span>🆔 {order['id'][:20]}...</span>
-                            <span class="status {status_class}">{status_text}</span>
+                    <div class="order-card">
+                        <div class="order-header">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <h2 style="color: white;">🆔 {order['id'][:15]}...</h2>
+                                <span class="status-badge {status_class}">{status_text}</span>
+                            </div>
                         </div>
-                        <div style="margin-top: 10px;">💰 Сумма: {order['total']} ₽</div>
-                        <a href="/orders/{order['id']}/" style="display: inline-block; margin-top: 10px; color: #007AFF;">Подробнее →</a>
+                        <div style="padding: 30px;">
+                            <div style="margin-bottom: 20px;">
+                                <span>💰 Сумма: <strong>{order['total']} ₽</strong></span>
+                            </div>
+                            <a href="/orders/{order['id']}/" class="glow-btn">ПОДРОБНЕЕ →</a>
+                        </div>
                     </div>
         """
     
@@ -1384,10 +1672,12 @@ def view_order(order_id):
     for f in os.listdir(order_path):
         file_path = os.path.join(order_path, f)
         if os.path.isfile(file_path) and not f.startswith('информация'):
+            ext = f.lower().split('.')[-1] if '.' in f else ''
             files.append({
                 'name': f,
                 'path': file_path,
-                'size': format_file_size(os.path.getsize(file_path))
+                'size_str': format_file_size(os.path.getsize(file_path)),
+                'ext': ext
             })
     
     status = "new"
@@ -1403,51 +1693,51 @@ def view_order(order_id):
     <!DOCTYPE html>
     <html>
     <head>
-        <meta charset="UTF-8">
         <title>Заказ | Print Bot</title>
-        {CSS}
+        {PREMIUM_CSS}
     </head>
     <body>
         <div class="container">
-            <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h1>🆔 Заказ {order_id[:20]}...</h1>
+            <div class="premium-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h1 class="neon-text" style="font-size: 2em;">🆔 ЗАКАЗ {order_id[:15]}...</h1>
                     <div>
-                        <a href="/orders/" class="btn">← Назад</a>
-                        <a href="/" class="btn" style="margin-left: 10px;">🏠 Главная</a>
+                        <a href="/orders/" class="glow-btn" style="padding: 10px 20px;">📋 НАЗАД</a>
+                        <a href="/" class="glow-btn" style="padding: 10px 20px;">🏠 ГЛАВНАЯ</a>
                     </div>
                 </div>
                 
-                <div style="margin: 20px 0;">
-                    <h3>Текущий статус:</h3>
-                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 40px; padding: 30px; margin-bottom: 30px;">
+                    <h2 style="color: white; margin-bottom: 20px;">Текущий статус:</h2>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
     """
     
     for status_key, status_value in ORDER_STATUSES.items():
         if status_key == status:
-            html += f"""<span class="status status-{status_key}" style="cursor: default;">{status_value}</span>"""
+            html += f"""<span class="glow-btn" style="cursor: default;">{status_value}</span>"""
         else:
-            html += f"""<a href="/orders/{order_id}/status/{status_key}/" class="status status-{status_key}" style="text-decoration: none;">{status_value}</a>"""
+            html += f"""<a href="/orders/{order_id}/status/{status_key}/" class="status-badge status-{status_key}" style="text-decoration: none;">{status_value}</a>"""
     
     html += f"""
                     </div>
                 </div>
                 
-                <div class="order">
-                    <h3>📊 Детали заказа</h3>
-                    <pre style="margin-top: 15px; white-space: pre-wrap; font-family: inherit;">{info_content}</pre>
+                <div class="order-card" style="padding: 30px;">
+                    <h2>📊 Детали заказа</h2>
+                    <pre style="white-space: pre-wrap; font-family: inherit;">{info_content}</pre>
                 </div>
                 
-                <div class="order" style="margin-top: 20px;">
-                    <h3>📁 Файлы ({len(files)})</h3>
-                    <div style="margin-top: 15px;">
+                <div class="order-card" style="padding: 30px; margin-top: 20px;">
+                    <h2>📁 Файлы ({len(files)})</h2>
+                    <div style="margin-top: 20px;">
     """
     
     for file in files:
+        icon = "📸" if file['ext'] in ['jpg', 'jpeg', 'png'] else "📄"
         html += f"""
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee;">
-                            <span>📄 {file['name']} ({file['size']})</span>
-                            <a href="/orders/{order_id}/file/{file['name']}" class="btn" style="padding: 5px 15px;" download>Скачать</a>
+                        <div style="padding: 10px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
+                            <span>{icon} {file['name']} ({file['size_str']})</span>
+                            <a href="/orders/{order_id}/file/{file['name']}" class="glow-btn" style="padding: 5px 15px;" download>📥</a>
                         </div>
         """
     
@@ -1455,10 +1745,10 @@ def view_order(order_id):
                     </div>
                 </div>
                 
-                <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <a href="/orders/{order_id}/download/" class="btn" style="flex: 1; text-align: center;">📦 Скачать все</a>
-                    <a href="/orders/{order_id}/delete/" class="btn" style="flex: 1; text-align: center; background: #dc3545;"
-                       onclick="return confirm('Удалить заказ?');">🗑️ Удалить</a>
+                <div style="display: flex; gap: 20px; margin-top: 30px;">
+                    <a href="/orders/{order_id}/download/" class="glow-btn" style="flex: 1; text-align: center;">📦 СКАЧАТЬ ВСЕ</a>
+                    <a href="/orders/{order_id}/delete/" class="glow-btn" style="flex: 1; text-align: center; background: linear-gradient(45deg, #f44336, #ff1744);"
+                       onclick="return confirm('Удалить заказ?');">🗑️ УДАЛИТЬ</a>
                 </div>
             </div>
         </div>
@@ -1478,14 +1768,14 @@ def change_status(order_id, new_status):
         <html>
         <head>
             <meta http-equiv="refresh" content="2;url=/orders/{order_id}/">
-            {CSS}
+            {PREMIUM_CSS}
         </head>
         <body>
             <div class="container" style="display: flex; justify-content: center; align-items: center; min-height: 100vh;">
-                <div class="card" style="text-align: center;">
-                    <div style="font-size: 48px; margin-bottom: 20px;">✅</div>
-                    <h2>Статус изменен</h2>
-                    <p>Новый статус: {get_status_display(new_status)}</p>
+                <div class="premium-card" style="text-align: center;">
+                    <div class="stat-icon">✅</div>
+                    <h1 class="neon-text">СТАТУС ИЗМЕНЕН</h1>
+                    <p style="color: white;">Новый статус: {get_status_display(new_status)}</p>
                 </div>
             </div>
         </body>
@@ -1545,13 +1835,13 @@ def delete_order(order_id):
         <html>
         <head>
             <meta http-equiv="refresh" content="2;url=/orders/">
-            {CSS}
+            {PREMIUM_CSS}
         </head>
         <body>
             <div class="container" style="display: flex; justify-content: center; align-items: center; min-height: 100vh;">
-                <div class="card" style="text-align: center;">
-                    <div style="font-size: 48px; margin-bottom: 20px;">🗑️</div>
-                    <h2>Заказ удален</h2>
+                <div class="premium-card" style="text-align: center;">
+                    <div class="stat-icon">🗑️</div>
+                    <h1 class="neon-text">ЗАКАЗ УДАЛЕН</h1>
                 </div>
             </div>
         </body>
@@ -1578,28 +1868,43 @@ def stats():
     <!DOCTYPE html>
     <html>
     <head>
-        <meta charset="UTF-8">
         <title>Статистика | Print Bot</title>
-        {CSS}
+        {PREMIUM_CSS}
     </head>
     <body>
         <div class="container">
-            <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h1>📊 Статистика</h1>
-                    <a href="/" class="btn">← На главную</a>
+            <div class="premium-card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+                    <h1 class="neon-text">📊 СТАТИСТИКА</h1>
+                    <a href="/" class="glow-btn">🏠 ГЛАВНАЯ</a>
                 </div>
                 
-                <div class="stats">
-                    <div class="stat"><div class="stat-value">{total_orders}</div>заказов</div>
-                    <div class="stat"><div class="stat-value">{total_revenue} ₽</div>выручка</div>
-                    <div class="stat"><div class="stat-value">{total_photos}</div>фото</div>
-                    <div class="stat"><div class="stat-value">{total_pages}</div>страниц</div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-value">{total_orders}</div>
+                        <div class="stat-label">Всего заказов</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-value">{total_revenue} ₽</div>
+                        <div class="stat-label">Выручка</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📸</div>
+                        <div class="stat-value">{total_photos}</div>
+                        <div class="stat-label">Фото</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📄</div>
+                        <div class="stat-value">{total_pages}</div>
+                        <div class="stat-label">Страниц</div>
+                    </div>
                 </div>
                 
-                <div class="order">
-                    <h3>📌 Статусы заказов</h3>
-                    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-top: 15px;">
+                <div class="order-card" style="padding: 30px; margin-top: 30px;">
+                    <h2>📌 Статусы заказов</h2>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 20px;">
     """
     
     for status, count in status_stats.items():
@@ -1607,8 +1912,8 @@ def stats():
         status_text = ORDER_STATUSES.get(status, status)
         html += f"""
                         <div style="text-align: center;">
-                            <span class="status {status_class}">{status_text}</span>
-                            <div style="font-size: 24px; font-weight: bold; margin-top: 5px;">{count}</div>
+                            <span class="status-badge {status_class}">{status_text}</span>
+                            <div style="font-size: 2em; margin-top: 5px;">{count}</div>
                         </div>
         """
     
@@ -1622,6 +1927,27 @@ def stats():
     """
     
     return render_template_string(html)
+
+# ========== HEALTH CHECK ДЛЯ RENDER ==========
+@app.route('/health')
+def health():
+    """Health check endpoint для Render"""
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "service": "print-bot-premium",
+        "version": "6.0"
+    }), 200
+
+@app.route('/healthz')
+def healthz():
+    """Альтернативный health check"""
+    return "OK", 200
+
+@app.route('/ping')
+def ping():
+    """Ping endpoint"""
+    return "pong", 200
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -1644,8 +1970,10 @@ def set_webhook():
     try:
         webhook_url = f"{RENDER_URL}/webhook"
         bot.set_webhook(url=webhook_url)
+        logger.info(f"✅ Webhook manually set to {webhook_url}")
         return f"Webhook set to {webhook_url}", 200
     except Exception as e:
+        logger.error(f"Error setting webhook: {e}")
         return f"Error: {e}", 500
 
 def error_handler(update, context):
@@ -1655,7 +1983,7 @@ def error_handler(update, context):
         if update and update.effective_chat:
             context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text="❌ Ошибка. Попробуйте /start"
+                text="❌ Произошла ошибка. Пожалуйста, попробуйте еще раз или начните заново с /start"
             )
     except:
         pass
@@ -1686,15 +2014,40 @@ def run_bot():
         
         bot_info = bot.get_me()
         logger.info(f"✅ Бот запущен: @{bot_info.username}")
+        logger.info(f"✅ Папка заказов: {ORDERS_PATH}")
+        logger.info(f"✅ Health check доступен по адресу: {RENDER_URL}/health")
         
         app.run(host="0.0.0.0", port=PORT)
         
     except Exception as e:
         logger.error(f"❌ Ошибка запуска: {e}")
+        logger.error(traceback.format_exc())
         sys.exit(1)
 
 if __name__ == "__main__":
+    print("""
+╔════════════════════════════════════════════════════════════════╗
+║                                                                ║
+║              ██████  ██████  ██ ███    ██ ████████             ║
+║              ██   ██ ██   ██ ██ ████   ██    ██                ║
+║              ██████  ██████  ██ ██ ██  ██    ██                ║
+║              ██      ██   ██ ██ ██  ██ ██    ██                ║
+║              ██      ██   ██ ██ ██   ████    ██                ║
+║                                                                ║
+║                                                                ║
+║                                                                ║
+║                                                                ║
+╚════════════════════════════════════════════════════════════════╝
+    """)
+    
     if not os.path.exists(ORDERS_PATH):
         os.makedirs(ORDERS_PATH, exist_ok=True)
+        logger.info(f"📁 Создана папка заказов: {ORDERS_PATH}")
+    
+    print(f"📁 Папка заказов: {ORDERS_PATH}")
+    print(f"🌍 Render URL: {RENDER_URL}")
+    print(f"🔗 Webhook URL: {RENDER_URL}/webhook")
+    print(f"❤️ Health check: {RENDER_URL}/health")
+    print(f"🚀 Запуск на порту: {PORT}")
     
     run_bot()

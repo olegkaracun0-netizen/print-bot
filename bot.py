@@ -1205,8 +1205,89 @@ def handle_quantity_input(update, context):
 # ========== ВЕБ-ИНТЕРФЕЙС ==========
 app = Flask(__name__)
 
-# (весь веб-интерфейс остается таким же как в вашем коде)
-# ... (код веб-интерфейса из вашего исходного файла)
+# Простой health check для Render
+@app.route('/health')
+def health():
+    return jsonify({
+        "status": "ok",
+        "timestamp": datetime.now().isoformat()
+    }), 200
+
+@app.route('/healthz')
+def healthz():
+    return "OK", 200
+
+@app.route('/ping')
+def ping():
+    return "pong", 200
+
+@app.route('/')
+def home():
+    orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
+    current_time = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Print Bot</title>
+        <style>
+            body {{ font-family: Arial; text-align: center; padding: 50px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }}
+            .container {{ max-width: 600px; margin: 0 auto; background: rgba(255,255,255,0.1); padding: 30px; border-radius: 20px; }}
+            h1 {{ font-size: 3em; }}
+            .stats {{ font-size: 1.5em; margin: 20px 0; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 Print Bot</h1>
+            <p>Telegram бот для печати фото и документов</p>
+            <div class="stats">📦 Заказов: {orders_count}</div>
+            <div class="stats">📞 Контакт: {CONTACT_PHONE}</div>
+            <div class="stats">⏰ {current_time}</div>
+        </div>
+    </body>
+    </html>
+    """
+    return render_template_string(html)
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    global dispatcher
+    try:
+        if dispatcher is None:
+            return jsonify({"error": "Dispatcher not initialized"}), 500
+        update_data = request.get_json()
+        if update_data:
+            logger.info(f"📩 Обновление: {update_data.get('update_id')}")
+            update = telegram.Update.de_json(update_data, bot)
+            dispatcher.process_update(update)
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"❌ Ошибка: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/set_webhook')
+def set_webhook():
+    try:
+        webhook_url = f"{RENDER_URL}/webhook"
+        bot.set_webhook(url=webhook_url)
+        return f"✅ Webhook установлен: {webhook_url}"
+    except Exception as e:
+        return f"❌ Ошибка: {e}"
+
+@app.route('/stats')
+def stats():
+    orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
+    active_sessions = len(user_sessions)
+    
+    return jsonify({
+        "status": "ok",
+        "orders_count": orders_count,
+        "active_sessions": active_sessions,
+        "bot_ready": dispatcher is not None,
+        "timestamp": datetime.now().isoformat()
+    })
 
 # ========== ИНИЦИАЛИЗАЦИЯ ==========
 print("=" * 60)

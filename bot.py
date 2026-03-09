@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлена кнопка отмены при выборе количества
+✨ СТИЛЬНЫЙ ДИЗАЙН С ЭМОДЗИ ✨
 """
 
 import os
@@ -65,10 +65,22 @@ ORDER_STATUSES = {
     "new": "🆕 Новый",
     "processing": "🔄 В обработке",
     "printing": "🖨️ В печати",
-    "ready": "✅ Готов",
+    "ready": "✅ Готов к выдаче",
     "shipped": "📦 Отправлен",
     "delivered": "🏁 Доставлен",
     "cancelled": "❌ Отменен"
+}
+
+# ========== СТИЛЬНЫЕ ШАПКИ ==========
+HEADERS = {
+    "welcome": "✨ ДОБРО ПОЖАЛОВАТЬ ✨",
+    "order": "📦 ОФОРМЛЕНИЕ ЗАКАЗА 📦",
+    "photos": "📸 ФОТОПЕЧАТЬ 📸",
+    "docs": "📄 ПЕЧАТЬ ДОКУМЕНТОВ 📄",
+    "success": "🎉 ЗАКАЗ ПРИНЯТ 🎉",
+    "cancel": "❌ ОТМЕНА ❌",
+    "price": "💰 РАСЧЕТ СТОИМОСТИ 💰",
+    "delivery": "🚚 ДОСТАВКА 🚚"
 }
 
 def get_status_display(status):
@@ -131,14 +143,32 @@ def update_order_status(order_id, new_status):
                 with open(info_file, 'w', encoding='utf-8') as f:
                     f.write(content)
             
-            # Отправляем уведомление клиенту
+            # Отправляем уведомление клиенту с красивым оформлением
             if user_id and bot:
                 try:
+                    status_emojis = {
+                        "new": "🆕",
+                        "processing": "🔄",
+                        "printing": "🖨️",
+                        "ready": "✅",
+                        "shipped": "📦",
+                        "delivered": "🏁",
+                        "cancelled": "❌"
+                    }
+                    emoji = status_emojis.get(new_status, "📢")
+                    
+                    message = (
+                        f"{emoji} ** СТАТУС ЗАКАЗА ИЗМЕНЕН ** {emoji}\n\n"
+                        f"┌─────────────────────┐\n"
+                        f"│ 🆔 Заказ: `{order_id}`\n"
+                        f"│ 📌 Статус: {get_status_display(new_status)}\n"
+                        f"└─────────────────────┘\n\n"
+                        f"Спасибо, что пользуетесь нашим сервисом! 🌟"
+                    )
+                    
                     bot.send_message(
                         chat_id=user_id,
-                        text=f"📢 **Статус вашего заказа изменен**\n\n"
-                             f"🆔 Заказ: {order_id}\n"
-                             f"📌 Новый статус: {get_status_display(new_status)}",
+                        text=message,
                         parse_mode="Markdown"
                     )
                     logger.info(f"✅ Уведомление отправлено пользователю {user_id}")
@@ -209,11 +239,11 @@ def calculate_price(price_dict, quantity):
 def estimate_delivery_time(total_items):
     """Расчет срока доставки"""
     if total_items <= 50:
-        return "1 день"
+        return "1 день ⚡"
     elif total_items <= 200:
-        return "2 дня"
+        return "2 дня 📅"
     else:
-        return "3 дня"
+        return "3 дня 📆"
 
 def extract_number_from_text(text):
     """Извлекает число из текста"""
@@ -391,37 +421,43 @@ def send_admin_notification(order_data, order_id, order_folder):
         total_photos = sum(f['items'] for f in photo_files)
         total_pages = sum(f['items'] for f in doc_files)
         
-        # Формируем сообщение для админа
-        admin_message = f"🆕 НОВЫЙ ЗАКАЗ!\n\n"
-        admin_message += f"👤 Клиент: {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
-        admin_message += f"🆔 ID: {order_data['user_info']['user_id']}\n\n"
+        # Формируем стильное сообщение для админа
+        admin_message = (
+            f"🆕🔔 ** НОВЫЙ ЗАКАЗ ** 🔔🆕\n\n"
+            f"┌─────────────────────┐\n"
+            f"│ 👤 Клиент: {order_data['user_info']['first_name']}\n"
+            f"│ 🆔 Username: @{order_data['user_info']['username']}\n"
+            f"│ 📱 ID: {order_data['user_info']['user_id']}\n"
+            f"└─────────────────────┘\n\n"
+        )
         
         if order_data['type'] == 'photo':
-            format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
-            admin_message += f"📸 Тип: Фото\n"
-            admin_message += f"📸 Формат: {format_names[order_data['format']]}\n"
+            format_names = {"small": "🖼️ Малый (A6)", "medium": "🖼️ Средний", "large": "🖼️ Большой (A4)"}
+            admin_message += f"📸 **Тип:** Фотопечать\n"
+            admin_message += f"📸 **Формат:** {format_names[order_data['format']]}\n"
         else:
-            color_names = {"bw": "Черно-белая", "color": "Цветная"}
-            admin_message += f"📄 Тип: Документы\n"
-            admin_message += f"📄 Печать: {color_names[order_data['color']]}\n"
+            color_names = {"bw": "⚫ Черно-белая", "color": "🎨 Цветная"}
+            admin_message += f"📄 **Тип:** Печать документов\n"
+            admin_message += f"📄 **Цветность:** {color_names[order_data['color']]}\n"
         
-        admin_message += f"📦 Копий: {order_data['quantity']}\n"
-        admin_message += f"📦 Файлов: {len(order_data['files'])}\n"
+        admin_message += f"📦 **Копий:** {order_data['quantity']}\n"
+        admin_message += f"📦 **Файлов:** {len(order_data['files'])}\n"
         
         if photo_files:
-            admin_message += f"📸 Фото: {len(photo_files)} файлов, {total_photos} фото\n"
+            admin_message += f"\n📸 **Фото:** {len(photo_files)} файлов, {total_photos} фото\n"
         if doc_files:
-            admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц\n"
+            admin_message += f"📄 **Документы:** {len(doc_files)} файлов, {total_pages} страниц\n"
         
-        admin_message += f"💰 Сумма: {order_data['total']} руб.\n"
-        admin_message += f"⏳ Срок: {order_data['delivery']}\n\n"
-        admin_message += f"🔗 Ссылка на заказ:\n{order_url}"
+        admin_message += f"\n💰 **Сумма:** {order_data['total']} руб.\n"
+        admin_message += f"⏳ **Срок:** {order_data['delivery']}\n\n"
+        admin_message += f"🔗 **Ссылка на заказ:**\n`{order_url}`"
         
         # Отправляем админу
         if bot:
             bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=admin_message
+                text=admin_message,
+                parse_mode="Markdown"
             )
             logger.info(f"✅ Уведомление отправлено админу {ADMIN_CHAT_ID}")
             
@@ -443,16 +479,30 @@ def start(update, context):
         del user_sessions[user_id]
     
     welcome = (
-        f"👋 Привет, {user.first_name}!\n\n"
-        "📸🖨️ Я помогу распечатать фото и документы.\n\n"
-        "📎 Отправляй файлы (JPG, PNG, PDF, DOC, DOCX)\n"
-        "📦 Можно отправлять несколько файлов за раз\n"
-        "📊 Я посчитаю количество и рассчитаю стоимость\n\n"
-        f"📞 Контакт: {CONTACT_PHONE}\n"
-        f"🚚 Доставка: {DELIVERY_OPTIONS}"
+        f"✨ ** {HEADERS['welcome']} ** ✨\n\n"
+        f"┌─────────────────────────┐\n"
+        f"│  👋 Привет, {user.first_name}!  │\n"
+        f"└─────────────────────────┘\n\n"
+        f"📸🖨️ **Фотостудия у тебя в кармане!**\n\n"
+        f"🎯 **Что я умею:**\n"
+        f"├ 📸 Печать фото (любые форматы)\n"
+        f"├ 📄 Печать документов (PDF, Word)\n"
+        f"├ 💰 Автоматический расчет стоимости\n"
+        f"└ 📦 Отслеживание статуса заказа\n\n"
+        f"📎 **Как заказать:**\n"
+        f"1. Отправь файлы (можно несколько сразу)\n"
+        f"2. Выбери формат и количество\n"
+        f"3. Подтверди заказ\n"
+        f"4. Получи уведомление о готовности\n\n"
+        f"📞 **Контакты:** `{CONTACT_PHONE}`\n"
+        f"🚚 **Доставка:** {DELIVERY_OPTIONS}\n\n"
+        f"🌟 **Отправляй файлы и начинаем!** 🌟"
     )
     
-    update.message.reply_text(welcome)
+    update.message.reply_text(
+        welcome,
+        parse_mode="Markdown"
+    )
     return WAITING_FOR_FILE
 
 def handle_file(update, context):
@@ -588,7 +638,8 @@ def process_media_group(user_id, media_group_id, context):
         if not user_sessions[user_id]["files"]:
             context.bot.send_message(
                 chat_id=user_id,
-                text="❌ Не удалось загрузить файлы"
+                text="❌ **Ошибка загрузки**\n\nНе удалось загрузить файлы. Попробуйте еще раз!",
+                parse_mode="Markdown"
             )
             return
         
@@ -596,41 +647,47 @@ def process_media_group(user_id, media_group_id, context):
         total_photos = user_sessions[user_id]["total_photos"]
         total_pages = user_sessions[user_id]["total_pages"]
         
-        text = f"✅ Загружено {files_count} файлов!\n\n📊 Статистика:\n"
+        text = f"📥✨ **ФАЙЛЫ ЗАГРУЖЕНЫ** ✨📥\n\n"
+        text += f"┌─────────────────────┐\n"
+        text += f"│ ✅ Загружено: {files_count} файлов  │\n"
+        text += f"└─────────────────────┘\n\n"
+        text += f"📊 **Статистика:**\n"
+        
         if photo_count > 0:
-            text += f"📸 Фото: {photo_count}\n"
+            text += f"├ 📸 Фото: {photo_count}\n"
         if doc_count > 0:
-            text += f"📄 Документы: {doc_count}\n"
+            text += f"├ 📄 Документы: {doc_count}\n"
         
         if total_photos > 0:
-            text += f"📸 Всего фото: {total_photos}\n"
+            text += f"├ 📸 Всего фото: {total_photos}\n"
         if total_pages > 0:
-            text += f"📄 Всего страниц: {total_pages}\n"
-        text += "\n"
+            text += f"├ 📄 Всего страниц: {total_pages}\n"
+        text += f"└─────────────────────┘\n\n"
         
         # Предлагаем выбор (если есть документы, приоритет у них)
         if doc_count > 0:
-            text += "Выберите тип печати для документов:"
+            text += "🔽 **Выберите тип печати для документов:**"
             keyboard = [
-                [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
-                [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
-                [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
-                [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+                [InlineKeyboardButton("⚫ Черно-белая печать", callback_data="doc_bw")],
+                [InlineKeyboardButton("🎨 Цветная печать", callback_data="doc_color")],
+                [InlineKeyboardButton("📤 Добавить еще файлы", callback_data="add_more")],
+                [InlineKeyboardButton("❌ Отменить заказ", callback_data="cancel")]
             ]
         else:
-            text += "Выберите формат печати для фото:"
+            text += "🔽 **Выберите формат печати для фото:**"
             keyboard = [
-                [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
-                [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
-                [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
-                [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
-                [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+                [InlineKeyboardButton("🖼️ Малый (A6/10x15) - от 18₽", callback_data="photo_small")],
+                [InlineKeyboardButton("🖼️ Средний (13x18/15x21) - от 35₽", callback_data="photo_medium")],
+                [InlineKeyboardButton("🖼️ Большой (A4/21x30) - от 120₽", callback_data="photo_large")],
+                [InlineKeyboardButton("📤 Добавить еще файлы", callback_data="add_more")],
+                [InlineKeyboardButton("❌ Отменить заказ", callback_data="cancel")]
             ]
         
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
         )
         
     except Exception as e:
@@ -677,7 +734,13 @@ def process_single_file(update, context):
         elif ext in ['pdf', 'doc', 'docx']:
             file_type = "doc"
         else:
-            message.reply_text("❌ Неподдерживаемый формат")
+            message.reply_text(
+                "❌ **Неподдерживаемый формат**\n\n"
+                "Пожалуйста, отправьте файлы в форматах:\n"
+                "📸 JPG, PNG (фото)\n"
+                "📄 PDF, DOC, DOCX (документы)",
+                parse_mode="Markdown"
+            )
             return WAITING_FOR_FILE
     elif message.photo:
         file_obj = message.photo[-1]
@@ -689,7 +752,7 @@ def process_single_file(update, context):
     # Скачиваем файл
     file_path, temp_dir = download_file(file_obj, file_name)
     if not file_path:
-        message.reply_text("❌ Ошибка загрузки")
+        message.reply_text("❌ **Ошибка загрузки**\n\nПопробуйте еще раз!")
         return WAITING_FOR_FILE
     
     # Считаем количество
@@ -719,38 +782,50 @@ def process_single_file(update, context):
     total_photos = user_sessions[user_id]["total_photos"]
     total_pages = user_sessions[user_id]["total_pages"]
     
-    text = f"✅ Файл добавлен!\n\n📊 Статистика:\n"
+    text = f"✅📥 **ФАЙЛ ДОБАВЛЕН** 📥✅\n\n"
+    text += f"┌─────────────────────┐\n"
+    text += f"│ 📄 {file_name[:30]}\n"
+    text += f"│ ├ 📊 Размер: {format_file_size(file_obj.file_size if hasattr(file_obj, 'file_size') else 0)}\n"
+    text += f"│ └ 📦 Количество: {items} {unit}\n"
+    text += f"└─────────────────────┘\n\n"
+    
+    text += f"📊 **Общая статистика:**\n"
+    text += f"├ 📁 Всего файлов: {files_count}\n"
     if photo_count > 0:
-        text += f"📸 Фото: {photo_count}\n"
+        text += f"├ 📸 Фото: {photo_count}\n"
     if doc_count > 0:
-        text += f"📄 Документы: {doc_count}\n"
+        text += f"├ 📄 Документы: {doc_count}\n"
     
     if total_photos > 0:
-        text += f"📸 Всего фото: {total_photos}\n"
+        text += f"├ 📸 Всего фото: {total_photos}\n"
     if total_pages > 0:
-        text += f"📄 Всего страниц: {total_pages}\n"
-    text += "\n"
+        text += f"├ 📄 Всего страниц: {total_pages}\n"
+    text += f"└─────────────────────┘\n\n"
     
     # Предлагаем выбор
     if doc_count > 0:
-        text += "Выберите тип печати для документов:"
+        text += "🔽 **Выберите тип печати для документов:**"
         keyboard = [
-            [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
-            [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
-            [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
-            [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+            [InlineKeyboardButton("⚫ Черно-белая печать", callback_data="doc_bw")],
+            [InlineKeyboardButton("🎨 Цветная печать", callback_data="doc_color")],
+            [InlineKeyboardButton("📤 Добавить еще файлы", callback_data="add_more")],
+            [InlineKeyboardButton("❌ Отменить заказ", callback_data="cancel")]
         ]
     else:
-        text += "Выберите формат печати для фото:"
+        text += "🔽 **Выберите формат печати для фото:**"
         keyboard = [
-            [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
-            [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
-            [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
-            [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
-            [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+            [InlineKeyboardButton("🖼️ Малый (A6/10x15) - от 18₽", callback_data="photo_small")],
+            [InlineKeyboardButton("🖼️ Средний (13x18/15x21) - от 35₽", callback_data="photo_medium")],
+            [InlineKeyboardButton("🖼️ Большой (A4/21x30) - от 120₽", callback_data="photo_large")],
+            [InlineKeyboardButton("📤 Добавить еще файлы", callback_data="add_more")],
+            [InlineKeyboardButton("❌ Отменить заказ", callback_data="cancel")]
         ]
     
-    message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
     return WAITING_FOR_FILE
 
 def cancel_order(user_id, query=None, context=None):
@@ -770,24 +845,36 @@ def cancel_order(user_id, query=None, context=None):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     # Отправляем или редактируем сообщение
+    message_text = (
+        f"❌ {HEADERS['cancel']} ❌\n\n"
+        f"┌─────────────────────┐\n"
+        f"│ Заказ отменен       │\n"
+        f"│ Файлы удалены       │\n"
+        f"└─────────────────────┘\n\n"
+        f"Хотите оформить новый заказ?"
+    )
+    
     if query:
         try:
             query.edit_message_text(
-                "❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
-                reply_markup=reply_markup
+                message_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
             )
         except:
             if context:
                 context.bot.send_message(
                     chat_id=user_id,
-                    text="❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
-                    reply_markup=reply_markup
+                    text=message_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
                 )
     elif context:
         context.bot.send_message(
             chat_id=user_id,
-            text="❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
-            reply_markup=reply_markup
+            text=message_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
         )
     
     return WAITING_FOR_FILE
@@ -806,7 +893,12 @@ def button_handler(update, context):
         return cancel_order(user_id, query, context)
     
     if data == "add_more":
-        query.edit_message_text("📤 Отправьте следующие файлы")
+        query.edit_message_text(
+            "📤 **Добавьте еще файлы**\n\n"
+            "Отправляйте файлы по одному или группой!\n"
+            "Я автоматически добавлю их к текущему заказу.",
+            parse_mode="Markdown"
+        )
         return WAITING_FOR_FILE
     
     if data == "new_order":
@@ -821,8 +913,13 @@ def button_handler(update, context):
             del user_sessions[user_id]
         
         query.edit_message_text(
-            "🔄 **НОВЫЙ ЗАКАЗ**\n\n"
-            "Отправьте файлы для печати (JPG, PNG, PDF, DOC, DOCX):",
+            f"✨ **НОВЫЙ ЗАКАЗ** ✨\n\n"
+            f"┌─────────────────────┐\n"
+            f"│ Отправьте файлы     │\n"
+            f"│ для печати:         │\n"
+            f"│ 📸 JPG, PNG         │\n"
+            f"│ 📄 PDF, DOC, DOCX   │\n"
+            f"└─────────────────────┘",
             parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
@@ -834,9 +931,11 @@ def button_handler(update, context):
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = data.split("_")[1]
         query.edit_message_text(
-            "🔢 Сколько копий каждого фото напечатать?\n"
-            "Введите число или выберите из вариантов:",
-            reply_markup=get_quantity_keyboard()
+            f"🖼️ **{HEADERS['photos']}** 🖼️\n\n"
+            f"🔢 **Сколько копий напечатать?**\n\n"
+            f"Выберите количество или введите свое:",
+            reply_markup=get_quantity_keyboard(),
+            parse_mode="Markdown"
         )
         return ENTERING_QUANTITY
     
@@ -849,13 +948,17 @@ def button_handler(update, context):
         total_photos = user_sessions[user_id]["total_photos"]
         total_pages = user_sessions[user_id]["total_pages"]
         total_items = total_photos + total_pages
+        
         query.edit_message_text(
-            f"🔢 В файлах всего {total_items} единиц.\n"
-            f"📸 Фото: {total_photos}\n"
-            f"📄 Страниц: {total_pages}\n\n"
-            f"Сколько копий каждого документа напечатать?\n"
-            f"Введите число или выберите из вариантов:",
-            reply_markup=get_quantity_keyboard()
+            f"📄 **{HEADERS['docs']}** 📄\n\n"
+            f"📊 **В файлах:**\n"
+            f"├ 📸 Фото: {total_photos}\n"
+            f"├ 📄 Страниц: {total_pages}\n"
+            f"└ 📦 Всего: {total_items} ед.\n\n"
+            f"🔢 **Сколько копий напечатать?**\n\n"
+            f"Выберите количество или введите свое:",
+            reply_markup=get_quantity_keyboard(),
+            parse_mode="Markdown"
         )
         return ENTERING_QUANTITY
     
@@ -873,7 +976,10 @@ def button_handler(update, context):
         total = 0
         total_photos_result = 0
         total_pages_result = 0
-        details = "📊 ДЕТАЛЬНЫЙ РАСЧЁТ:\n\n"
+        details = f"💰 **{HEADERS['price']}** 💰\n\n"
+        details += "┌─────────────────────────┐\n"
+        details += "│   ДЕТАЛЬНЫЙ РАСЧЕТ      │\n"
+        details += "└─────────────────────────┘\n\n"
         
         for i, f in enumerate(files, 1):
             if f['type'] == 'photo':
@@ -886,19 +992,21 @@ def button_handler(update, context):
                 price_dict = PHOTO_PRICES[session["format"]]
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
-                details += f"📸 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} фото × {quantity} копий = {f['items'] * quantity} фото\n"
-                details += f"   • {file_total // quantity} руб./копия\n"
-                details += f"   • Итого: {file_total} руб.\n\n"
+                details += f"📸 **Файл {i}:**\n"
+                details += f"├ 📄 {f['name'][:30]}...\n"
+                details += f"├ 🔢 {f['items']} фото × {quantity} копий = {f['items'] * quantity} фото\n"
+                details += f"├ 💰 {file_total // quantity} руб./копия\n"
+                details += f"└ 💵 Итого: {file_total} руб.\n\n"
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
-                details += f"📄 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} стр. × {quantity} копий = {file_items} стр.\n"
-                details += f"   • {file_total // file_items} руб./стр.\n"
-                details += f"   • Итого: {file_total} руб.\n\n"
+                details += f"📄 **Файл {i}:**\n"
+                details += f"├ 📄 {f['name'][:30]}...\n"
+                details += f"├ 🔢 {f['items']} стр. × {quantity} копий = {file_items} стр.\n"
+                details += f"├ 💰 {file_total // file_items} руб./стр.\n"
+                details += f"└ 💵 Итого: {file_total} руб.\n\n"
         
         session["total"] = total
         session["total_photos"] = total_photos_result
@@ -906,14 +1014,16 @@ def button_handler(update, context):
         session["delivery"] = estimate_delivery_time(total_photos_result + total_pages_result)
         
         text = f"{details}\n"
-        text += "📋 ПРОВЕРЬТЕ ЗАКАЗ:\n\n"
+        text += "┌─────────────────────────┐\n"
+        text += "│   ПРОВЕРЬТЕ ЗАКАЗ       │\n"
+        text += "└─────────────────────────┘\n\n"
         text += f"📦 Всего файлов: {len(files)}\n"
         if total_photos_result > 0:
-            text += f"📸 Всего фото к печати: {total_photos_result}\n"
+            text += f"📸 Фото к печати: {total_photos_result}\n"
         if total_pages_result > 0:
-            text += f"📄 Всего страниц к печати: {total_pages_result}\n"
-        text += f"💰 ИТОГОВАЯ СУММА: {total} руб.\n"
-        text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
+            text += f"📄 Страниц к печати: {total_pages_result}\n"
+        text += f"💰 **ИТОГОВАЯ СУММА: {total} руб.**\n"
+        text += f"⏳ **Срок выполнения: {session['delivery']}**\n\n"
         text += "Всё верно?"
         
         keyboard = [
@@ -925,7 +1035,8 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
         )
         return CONFIRMING_ORDER
     
@@ -954,27 +1065,30 @@ def button_handler(update, context):
             
             # Уведомление клиенту
             client_message = (
-                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
-                f"🆔 Номер заказа: `{order_id}`\n"
-                f"👤 Заказчик: {session['user_info']['first_name']}\n"
-                f"📦 Файлов: {len(session['files'])}\n"
+                f"🎉✨ **{HEADERS['success']}** ✨🎉\n\n"
+                f"┌─────────────────────────┐\n"
+                f"│   ЗАКАЗ ПРИНЯТ!         │\n"
+                f"└─────────────────────────┘\n\n"
+                f"🆔 **Номер заказа:** `{order_id}`\n"
+                f"👤 **Заказчик:** {session['user_info']['first_name']}\n"
+                f"📦 **Файлов:** {len(session['files'])}\n"
             )
             
             if total_photos > 0:
-                client_message += f"📸 Фото в оригинале: {total_photos}\n"
-                client_message += f"📸 Фото к печати: {total_photos * session['quantity']}\n"
+                client_message += f"📸 **Фото в оригинале:** {total_photos}\n"
+                client_message += f"📸 **Фото к печати:** {total_photos * session['quantity']}\n"
             if total_pages > 0:
-                client_message += f"📄 Страниц в оригинале: {total_pages}\n"
-                client_message += f"📄 Страниц к печати: {total_pages * session['quantity']}\n"
+                client_message += f"📄 **Страниц в оригинале:** {total_pages}\n"
+                client_message += f"📄 **Страниц к печати:** {total_pages * session['quantity']}\n"
             
             client_message += (
-                f"💰 Сумма к оплате: {session['total']} руб.\n"
-                f"⏳ Срок выполнения: {session['delivery']}\n\n"
-                f"📞 Контактный телефон: {CONTACT_PHONE}\n"
-                f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                f"📌 **Статус вашего заказа:** {get_status_display('new')}\n"
-                "Вы будете получать уведомления при изменении статуса.\n\n"
-                "Спасибо за заказ! 😊"
+                f"💰 **Сумма к оплате:** {session['total']} руб.\n"
+                f"⏳ **Срок выполнения:** {session['delivery']}\n\n"
+                f"📞 **Контакт:** {CONTACT_PHONE}\n"
+                f"🚚 **Доставка:** {DELIVERY_OPTIONS}\n\n"
+                f"📌 **Статус заказа:** {get_status_display('new')}\n"
+                f"📢 Вы будете получать уведомления!\n\n"
+                f"🌟 **Спасибо за заказ!** 🌟"
             )
             
             context.bot.send_message(
@@ -1009,7 +1123,8 @@ def button_handler(update, context):
         else:
             context.bot.send_message(
                 chat_id=user_id,
-                text="❌ Ошибка при сохранении заказа"
+                text="❌ **Ошибка при сохранении заказа**\n\nПожалуйста, попробуйте еще раз!",
+                parse_mode="Markdown"
             )
         
         # Очищаем временные файлы
@@ -1022,8 +1137,9 @@ def button_handler(update, context):
         query.message.delete()
         context.bot.send_message(
             chat_id=user_id,
-            text="Хотите оформить ещё один заказ?",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            text="🌟 **Хотите оформить еще один заказ?** 🌟",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
     
@@ -1032,20 +1148,20 @@ def button_handler(update, context):
 def get_quantity_keyboard():
     """Клавиатура выбора количества"""
     keyboard = [
-        [InlineKeyboardButton("1", callback_data="qty_1"), 
-         InlineKeyboardButton("2", callback_data="qty_2"),
-         InlineKeyboardButton("3", callback_data="qty_3"), 
-         InlineKeyboardButton("4", callback_data="qty_4"),
-         InlineKeyboardButton("5", callback_data="qty_5")],
-        [InlineKeyboardButton("10", callback_data="qty_10"), 
-         InlineKeyboardButton("20", callback_data="qty_20"),
-         InlineKeyboardButton("30", callback_data="qty_30"), 
-         InlineKeyboardButton("50", callback_data="qty_50"),
-         InlineKeyboardButton("100", callback_data="qty_100")],
-        [InlineKeyboardButton("200", callback_data="qty_200"), 
-         InlineKeyboardButton("300", callback_data="qty_300"),
-         InlineKeyboardButton("400", callback_data="qty_400"), 
-         InlineKeyboardButton("500", callback_data="qty_500")],
+        [InlineKeyboardButton("1️⃣", callback_data="qty_1"), 
+         InlineKeyboardButton("2️⃣", callback_data="qty_2"),
+         InlineKeyboardButton("3️⃣", callback_data="qty_3"), 
+         InlineKeyboardButton("4️⃣", callback_data="qty_4"),
+         InlineKeyboardButton("5️⃣", callback_data="qty_5")],
+        [InlineKeyboardButton("🔟", callback_data="qty_10"), 
+         InlineKeyboardButton("2️⃣0️⃣", callback_data="qty_20"),
+         InlineKeyboardButton("3️⃣0️⃣", callback_data="qty_30"), 
+         InlineKeyboardButton("5️⃣0️⃣", callback_data="qty_50"),
+         InlineKeyboardButton("💯", callback_data="qty_100")],
+        [InlineKeyboardButton("2️⃣0️⃣0️⃣", callback_data="qty_200"), 
+         InlineKeyboardButton("3️⃣0️⃣0️⃣", callback_data="qty_300"),
+         InlineKeyboardButton("4️⃣0️⃣0️⃣", callback_data="qty_400"), 
+         InlineKeyboardButton("5️⃣0️⃣0️⃣", callback_data="qty_500")],
         [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -1058,9 +1174,11 @@ def handle_quantity_input(update, context):
     
     if not quantity or quantity < 1 or quantity > 1000:
         update.message.reply_text(
+            "❌ **Ошибка ввода**\n\n"
             "Пожалуйста, введите число от 1 до 1000\n"
-            "Или выберите из кнопок:",
-            reply_markup=get_quantity_keyboard()
+            "Или выберите из кнопок ниже:",
+            reply_markup=get_quantity_keyboard(),
+            parse_mode="Markdown"
         )
         return ENTERING_QUANTITY
     
@@ -1153,26 +1271,34 @@ def list_orders():
             <title>Заказы - Print Bot</title>
             <meta charset="utf-8">
             <style>
-                body { font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; margin: 0; }
+                body { font-family: 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 20px; margin: 0; }
                 .container { max-width: 1400px; margin: 0 auto; }
-                .header { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; margin-bottom: 30px; color: white; }
+                .header { background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; margin-bottom: 30px; color: white; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
                 .nav-links { display: flex; gap: 15px; margin-bottom: 30px; }
-                .nav-btn { background: rgba(255,255,255,0.15); color: white; text-decoration: none; padding: 10px 20px; border-radius: 10px; }
+                .nav-btn { background: rgba(255,255,255,0.15); color: white; text-decoration: none; padding: 12px 25px; border-radius: 12px; font-weight: 500; transition: all 0.3s; backdrop-filter: blur(5px); }
+                .nav-btn:hover { background: rgba(255,255,255,0.25); transform: translateY(-2px); }
                 .orders-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 25px; }
-                .order-card { background: white; border-radius: 20px; overflow: hidden; }
+                .order-card { background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 15px 35px rgba(0,0,0,0.2); transition: transform 0.3s; }
+                .order-card:hover { transform: translateY(-5px); }
                 .order-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; }
                 .order-content { padding: 20px; }
-                .status-btn { padding: 5px 10px; border: none; border-radius: 5px; cursor: pointer; margin: 2px; }
-                .status-btn.new { background: #e3f2fd; }
-                .status-btn.processing { background: #fff3e0; }
-                .status-btn.printing { background: #e8f5e8; }
-                .status-btn.ready { background: #e8e8f5; }
-                .status-btn.shipped { background: #f3e5f5; }
-                .status-btn.delivered { background: #e8f0fe; }
-                .status-btn.cancelled { background: #ffebee; }
-                .photo-gallery { display: flex; gap: 10px; overflow-x: auto; padding: 10px 0; }
-                .photo-preview { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; cursor: pointer; }
-                .action-btn { display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 10px; margin-top: 15px; }
+                .status-badge { display: inline-block; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 10px; }
+                .status-btn { padding: 8px 12px; border: none; border-radius: 8px; cursor: pointer; margin: 2px; font-size: 14px; transition: all 0.2s; }
+                .status-btn:hover { transform: scale(1.05); }
+                .status-btn.new { background: #e3f2fd; color: #1976d2; }
+                .status-btn.processing { background: #fff3e0; color: #f57c00; }
+                .status-btn.printing { background: #e8f5e8; color: #388e3c; }
+                .status-btn.ready { background: #e8e8f5; color: #5c6bc0; }
+                .status-btn.shipped { background: #f3e5f5; color: #8e24aa; }
+                .status-btn.delivered { background: #e8f0fe; color: #1e88e5; }
+                .status-btn.cancelled { background: #ffebee; color: #d32f2f; }
+                .photo-gallery { display: flex; gap: 10px; overflow-x: auto; padding: 10px 0; margin: 10px 0; }
+                .photo-preview { width: 80px; height: 80px; object-fit: cover; border-radius: 10px; cursor: pointer; transition: transform 0.2s; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+                .photo-preview:hover { transform: scale(1.1); }
+                .action-btn { display: inline-block; padding: 10px 20px; background: #28a745; color: white; text-decoration: none; border-radius: 10px; margin-top: 15px; margin-right: 10px; transition: all 0.3s; }
+                .action-btn:hover { background: #218838; transform: translateY(-2px); }
+                .stats { display: flex; gap: 10px; margin-top: 10px; }
+                .stat { background: #f8f9fa; padding: 5px 10px; border-radius: 20px; font-size: 12px; }
             </style>
             <script>
                 function updateStatus(orderId, status) {
@@ -1180,7 +1306,7 @@ def list_orders():
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({status: status})
-                    }).then(r => r.json()).then(d => { if(d.success) location.reload(); else alert('Ошибка'); });
+                    }).then(r => r.json()).then(d => { if(d.success) location.reload(); else alert('❌ Ошибка обновления статуса'); });
                 }
             </script>
         </head>
@@ -1198,11 +1324,16 @@ def list_orders():
                     {% for order in orders %}
                     <div class="order-card">
                         <div class="order-header">
-                            <h2>{{ order.id }}</h2>
-                            <div>{{ order.status }}</div>
+                            <h3 style="margin:0;">{{ order.id[:20] }}...</h3>
+                            <div style="margin-top:10px;">{{ order.status }}</div>
                         </div>
                         <div class="order-content">
-                            <div class="status-buttons">
+                            <div class="stats">
+                                <span class="stat">📁 {{ order.file_count }} файлов</span>
+                                <span class="stat">📦 {{ order.total_size }}</span>
+                                <span class="stat">📅 {{ order.created }}</span>
+                            </div>
+                            <div style="margin:15px 0;">
                                 <button class="status-btn new" onclick="updateStatus('{{ order.id }}','new')">🆕</button>
                                 <button class="status-btn processing" onclick="updateStatus('{{ order.id }}','processing')">🔄</button>
                                 <button class="status-btn printing" onclick="updateStatus('{{ order.id }}','printing')">🖨️</button>
@@ -1280,12 +1411,12 @@ def view_order(order_id):
         
         photo_html = ""
         for p in photos:
-            photo_html += f'<div class="photo-item"><img src="{p["url"]}" class="photo-img" onclick="window.open(\'{p["url"]}\')"><br>{p["name"]}</div>'
+            photo_html += f'<div class="photo-item"><img src="{p["url"]}" class="photo-img" onclick="window.open(\'{p["url"]}\')"><br><small>{p["name"][:30]}</small></div>'
         
         file_html = ""
         for f in files:
             icon = "📸" if f["is_photo"] else "📄"
-            file_html += f'<a href="{f["url"]}" class="file-card" download><div class="file-icon">{icon}</div><div class="file-name">{f["name"]}</div><div class="file-size">{f["size_formatted"]}</div></a>'
+            file_html += f'<a href="{f["url"]}" class="file-card" download><div class="file-icon">{icon}</div><div class="file-name">{f["name"][:30]}</div><div class="file-size">{f["size_formatted"]}</div></a>'
         
         html = f"""
         <!DOCTYPE html>
@@ -1294,26 +1425,36 @@ def view_order(order_id):
             <title>Заказ {order_id}</title>
             <meta charset="utf-8">
             <style>
-                body {{ font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; margin: 0; }}
+                body {{ font-family: 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; margin: 0; }}
                 .container {{ max-width: 1200px; margin: 0 auto; }}
-                .header {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; color: white; margin-bottom: 30px; }}
+                .header {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; color: white; margin-bottom: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }}
                 .nav-links {{ display: flex; gap: 15px; margin-bottom: 30px; }}
-                .nav-btn {{ background: rgba(255,255,255,0.15); color: white; text-decoration: none; padding: 10px 20px; border-radius: 10px; }}
-                .content {{ background: white; border-radius: 20px; padding: 30px; }}
-                .status-btn {{ padding: 10px 15px; border: none; border-radius: 8px; cursor: pointer; margin: 2px; }}
-                .status-btn.new {{ background: #e3f2fd; }}
-                .status-btn.processing {{ background: #fff3e0; }}
-                .status-btn.printing {{ background: #e8f5e8; }}
-                .status-btn.ready {{ background: #e8e8f5; }}
-                .status-btn.shipped {{ background: #f3e5f5; }}
-                .status-btn.delivered {{ background: #e8f0fe; }}
-                .status-btn.cancelled {{ background: #ffebee; }}
+                .nav-btn {{ background: rgba(255,255,255,0.15); color: white; text-decoration: none; padding: 10px 20px; border-radius: 10px; transition: all 0.3s; }}
+                .nav-btn:hover {{ background: rgba(255,255,255,0.25); transform: translateY(-2px); }}
+                .content {{ background: white; border-radius: 20px; padding: 30px; box-shadow: 0 15px 35px rgba(0,0,0,0.2); }}
+                .status-buttons {{ display: flex; gap: 5px; flex-wrap: wrap; margin: 15px 0; }}
+                .status-btn {{ padding: 10px 15px; border: none; border-radius: 8px; cursor: pointer; margin: 2px; font-size: 14px; transition: all 0.2s; }}
+                .status-btn:hover {{ transform: scale(1.05); }}
+                .status-btn.new {{ background: #e3f2fd; color: #1976d2; }}
+                .status-btn.processing {{ background: #fff3e0; color: #f57c00; }}
+                .status-btn.printing {{ background: #e8f5e8; color: #388e3c; }}
+                .status-btn.ready {{ background: #e8e8f5; color: #5c6bc0; }}
+                .status-btn.shipped {{ background: #f3e5f5; color: #8e24aa; }}
+                .status-btn.delivered {{ background: #e8f0fe; color: #1e88e5; }}
+                .status-btn.cancelled {{ background: #ffebee; color: #d32f2f; }}
                 .photo-gallery {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 15px; margin: 20px 0; }}
                 .photo-item {{ background: #f8f9fa; border-radius: 10px; padding: 10px; text-align: center; }}
-                .photo-img {{ max-width: 100%; max-height: 150px; border-radius: 8px; cursor: pointer; }}
+                .photo-img {{ max-width: 100%; max-height: 150px; border-radius: 8px; cursor: pointer; transition: transform 0.2s; }}
+                .photo-img:hover {{ transform: scale(1.05); }}
                 .files-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(250px,1fr)); gap: 15px; margin: 20px 0; }}
-                .file-card {{ background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; text-decoration: none; color: #333; display: block; }}
-                .download-all {{ display: inline-block; background: #28a745; color: white; text-decoration: none; padding: 15px 30px; border-radius: 10px; margin-top: 20px; }}
+                .file-card {{ background: #f8f9fa; border-radius: 10px; padding: 15px; text-align: center; text-decoration: none; color: #333; display: block; transition: all 0.3s; }}
+                .file-card:hover {{ background: #e9ecef; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); }}
+                .file-icon {{ font-size: 2em; margin-bottom: 10px; }}
+                .file-name {{ font-size: 14px; margin-bottom: 5px; }}
+                .file-size {{ font-size: 12px; color: #666; }}
+                .download-all {{ display: inline-block; background: #28a745; color: white; text-decoration: none; padding: 15px 30px; border-radius: 10px; margin-top: 20px; transition: all 0.3s; }}
+                .download-all:hover {{ background: #218838; transform: translateY(-2px); }}
+                pre {{ background: #f8f9fa; padding: 15px; border-radius: 10px; overflow-x: auto; }}
             </style>
             <script>
                 function updateStatus(status) {{
@@ -1321,7 +1462,7 @@ def view_order(order_id):
                         method: 'POST',
                         headers: {{'Content-Type': 'application/json'}},
                         body: JSON.stringify({{status: status}})
-                    }}).then(r=>r.json()).then(d=>{{ if(d.success) location.reload(); else alert('Ошибка'); }});
+                    }}).then(r=>r.json()).then(d=>{{ if(d.success) location.reload(); else alert('❌ Ошибка обновления статуса'); }});
                 }}
             </script>
         </head>
@@ -1338,7 +1479,7 @@ def view_order(order_id):
                 <div class="content">
                     <div>
                         <h3>📌 Текущий статус: {get_status_display(status)}</h3>
-                        <div>
+                        <div class="status-buttons">
                             <button class="status-btn new" onclick="updateStatus('new')">🆕 Новый</button>
                             <button class="status-btn processing" onclick="updateStatus('processing')">🔄 В обработке</button>
                             <button class="status-btn printing" onclick="updateStatus('printing')">🖨️ В печати</button>
@@ -1442,7 +1583,12 @@ def health():
 @app.route('/stats')
 def stats():
     orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
-    return jsonify({"status": "ok", "orders_count": orders_count, "active_sessions": len(user_sessions)})
+    return jsonify({
+        "status": "ok", 
+        "orders_count": orders_count, 
+        "active_sessions": len(user_sessions),
+        "total_orders": orders_count
+    })
 
 @app.route('/')
 def home():
@@ -1451,28 +1597,43 @@ def home():
     return f"""
     <!DOCTYPE html>
     <html>
-    <head><title>Print Bot</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; margin: 0; }}
-        .container {{ max-width: 800px; width: 100%; }}
-        .hero {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 30px; padding: 40px; color: white; text-align: center; }}
-        h1 {{ font-size: 3em; margin-bottom: 20px; }}
-        .stats {{ display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin: 30px 0; }}
-        .stat-card {{ background: rgba(255,255,255,0.15); border-radius: 15px; padding: 20px; }}
-        .nav-links {{ display: flex; gap: 15px; justify-content: center; margin-top: 30px; }}
-        .nav-btn {{ background: white; color: #667eea; text-decoration: none; padding: 15px 30px; border-radius: 10px; font-weight: bold; }}
-        .info {{ margin-top: 30px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 10px; }}
-    </style>
+    <head>
+        <title>Print Bot</title>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: 'Segoe UI', Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; margin: 0; }}
+            .container {{ max-width: 800px; width: 100%; }}
+            .hero {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 30px; padding: 40px; color: white; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.3); }}
+            h1 {{ font-size: 3.5em; margin-bottom: 20px; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }}
+            .stats {{ display: grid; grid-template-columns: repeat(3,1fr); gap: 20px; margin: 40px 0; }}
+            .stat-card {{ background: rgba(255,255,255,0.15); border-radius: 20px; padding: 25px; transition: transform 0.3s; }}
+            .stat-card:hover {{ transform: translateY(-5px); }}
+            .stat-value {{ font-size: 2.5em; font-weight: bold; margin-bottom: 5px; }}
+            .nav-links {{ display: flex; gap: 15px; justify-content: center; margin-top: 30px; }}
+            .nav-btn {{ background: white; color: #667eea; text-decoration: none; padding: 15px 30px; border-radius: 15px; font-weight: bold; transition: all 0.3s; }}
+            .nav-btn:hover {{ transform: translateY(-2px); box-shadow: 0 10px 20px rgba(0,0,0,0.2); }}
+            .info {{ margin-top: 30px; padding: 20px; background: rgba(0,0,0,0.2); border-radius: 15px; }}
+            .info p {{ margin: 10px 0; }}
+        </style>
     </head>
     <body>
         <div class="container">
             <div class="hero">
                 <h1>🤖 Print Bot</h1>
-                <p>Сервис для печати фото и документов через Telegram</p>
+                <p style="font-size: 1.2em;">Сервис для печати фото и документов через Telegram</p>
                 <div class="stats">
-                    <div class="stat-card"><div class="stat-value">{orders_count}</div><div>заказов</div></div>
-                    <div class="stat-card"><div class="stat-value">24/7</div><div>работа</div></div>
-                    <div class="stat-card"><div class="stat-value">1-3</div><div>дня</div></div>
+                    <div class="stat-card">
+                        <div class="stat-value">{orders_count}</div>
+                        <div>заказов</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">24/7</div>
+                        <div>работа</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">1-3</div>
+                        <div>дня</div>
+                    </div>
                 </div>
                 <div class="nav-links">
                     <a href="/orders/" class="nav-btn">📦 Заказы</a>
@@ -1500,7 +1661,7 @@ bot = telegram.Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
-# ВАЖНО: Добавляем обработчик cancel для состояния ENTERING_QUANTITY
+# ВАЖНО: Добавляем обработчик cancel для всех состояний
 conv_handler = ConversationHandler(
     entry_points=[
         MessageHandler(Filters.document | Filters.photo, handle_file),
@@ -1513,16 +1674,16 @@ conv_handler = ConversationHandler(
         ],
         SELECTING_PHOTO_FORMAT: [
             CallbackQueryHandler(button_handler, pattern="^photo_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # Добавлено
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
         SELECTING_DOC_TYPE: [
             CallbackQueryHandler(button_handler, pattern="^doc_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # Добавлено
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
         ENTERING_QUANTITY: [
             MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
             CallbackQueryHandler(button_handler, pattern="^qty_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # ВАЖНО: добавляем обработку cancel
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
         CONFIRMING_ORDER: [
             CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),

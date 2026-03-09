@@ -181,30 +181,33 @@ DOC_PRICES = {
     "color": {(1, 20): 50, (21, 100): 35, (101, 300): 25, (301, float("inf")): 20},
 }
 
-# ========== НОВЫЙ ПРЕМИУМ ДИЗАЙН ==========
+# ========== ПРЕМИУМ ДИЗАЙН С РОВНЫМИ РАМКАМИ ==========
+# Все рамки имеют ширину 34 символа
 
 def create_header(title, emoji):
-    """Создает красивый заголовок с рамкой"""
+    """Создает красивый заголовок с рамкой (ровно 34 символа)"""
+    # Вычисляем сколько пробелов нужно добавить по бокам
+    title_len = len(title) + 4  # +4 для emoji и пробелов
+    side_spaces = (32 - title_len) // 2
+    left_spaces = " " * side_spaces
+    right_spaces = " " * (32 - title_len - side_spaces)
+    
     return f"""
 ╔══════════════════════════════════╗
-║ {emoji} {title.upper()}  {emoji} ║
+║{left_spaces}{emoji}  {title.upper()}  {emoji}{right_spaces}║
 ╚══════════════════════════════════╝"""
 
-def create_subheader(text):
-    """Создает подзаголовок"""
-    return f"\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n   {text}\n▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰\n"
+def create_divider():
+    """Создает разделитель (ровно 34 символа)"""
+    return "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
 
-def create_point(text, emoji="●"):
+def create_point(text):
     """Создает пункт списка"""
-    return f"{emoji} {text}"
+    return f"● {text}"
 
 def create_price(amount):
     """Форматирует цену"""
     return f"💰 **{amount} руб.**"
-
-def create_divider():
-    """Создает разделитель"""
-    return "▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰▰"
 
 # ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def calculate_price(price_dict, quantity):
@@ -488,8 +491,8 @@ def process_single_file(update, context):
 
 📌 **Допустимые форматы:**
 
-{create_point('📸 JPG, PNG', '•')}
-{create_point('📄 PDF, DOC, DOCX', '•')}
+{create_point('📸 JPG, PNG')}
+{create_point('📄 PDF, DOC, DOCX')}
 
 {create_divider()}
 
@@ -900,13 +903,13 @@ def button_handler(update, context):
                 price_dict = PHOTO_PRICES[session["format"]]
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
-                details += f"📸 **Файл {i}:**\n   {create_point(f'{f['items']} фото × {quantity} коп. = {f['items'] * quantity} фото → {file_total} ₽')}\n\n"
+                details += f"📸 **Файл {i}:**\n   {create_point(f'{f["items"]} фото × {quantity} коп. = {f["items"] * quantity} фото → {file_total} ₽')}\n\n"
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
-                details += f"📄 **Файл {i}:**\n   {create_point(f'{f['items']} стр. × {quantity} коп. = {file_items} стр. → {file_total} ₽')}\n\n"
+                details += f"📄 **Файл {i}:**\n   {create_point(f'{f["items"]} стр. × {quantity} коп. = {file_items} стр. → {file_total} ₽')}\n\n"
         
         session["total"] = total
         session["total_photos"] = total_photos_result
@@ -1188,7 +1191,6 @@ def ping():
     return "pong", 200
 
 # ========== ВЕБ-ИНТЕРФЕЙС ==========
-
 @app.route('/')
 def home():
     orders_count = len([d for d in os.listdir(ORDERS_PATH) if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0

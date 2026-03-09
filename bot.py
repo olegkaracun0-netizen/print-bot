@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-✨ КРАСОЧНЫЙ АНИМИРОВАННЫЙ ДИЗАЙН ✨
+✨ КРАСОЧНЫЙ ДИЗАЙН С РУЧНЫМ ВВОДОМ ✨
 """
 
 import os
@@ -22,7 +22,7 @@ from flask import Flask, request, jsonify, send_file, send_from_directory, rende
 
 # Используем синхронную версию python-telegram-bot
 import telegram
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
 
 import PyPDF2
@@ -62,67 +62,64 @@ ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
 
 # ========== СТАТУСЫ ЗАКАЗОВ ==========
 ORDER_STATUSES = {
-    "new": "🆕✨ Новый",
-    "processing": "🔄⚡ В обработке",
-    "printing": "🖨️🌟 В печати",
-    "ready": "✅🎉 Готов",
-    "shipped": "📦🚀 Отправлен",
-    "delivered": "🏁🎯 Доставлен",
-    "cancelled": "❌💔 Отменен"
+    "new": "🆕 Новый",
+    "processing": "🔄 В обработке",
+    "printing": "🖨️ В печати",
+    "ready": "✅ Готов",
+    "shipped": "📦 Отправлен",
+    "delivered": "🏁 Доставлен",
+    "cancelled": "❌ Отменен"
 }
 
 # ========== АНИМИРОВАННЫЕ ЭМОДЗИ ==========
 EMOJI = {
-    # Анимированные/движущиеся
     "sparkle": "✨",
-    "sparkles": "✨🌟💫",
+    "sparkles": ["✨", "🌟", "💫"],
     "fire": "🔥",
     "rocket": "🚀",
     "star": "⭐",
-    "stars": "🌟✨⭐",
+    "stars": ["🌟", "✨", "⭐"],
     "zap": "⚡",
     "dizzy": "💫",
     "boom": "💥",
     "crown": "👑",
     "rainbow": "🌈",
-    
-    # Для разных типов
     "photo": "📸",
-    "photos": "📸📷🎥",
+    "photos": ["📸", "📷", "🎥"],
     "document": "📄",
-    "documents": "📄📑📊",
+    "documents": ["📄", "📑", "📊"],
     "success": "✅",
-    "success_anim": "✅🎉✨",
+    "success_anim": ["✅", "🎉", "✨"],
     "error": "❌",
-    "error_anim": "❌😱💔",
+    "error_anim": ["❌", "😱", "💔"],
     "money": "💰",
-    "money_anim": "💰💎💵",
+    "money_anim": ["💰", "💎", "💵"],
     "time": "⏰",
-    "time_anim": "⏰⌛⏳",
+    "time_anim": ["⏰", "⌛", "⏳"],
     "file": "📎",
-    "files_anim": "📎📦📋",
+    "files_anim": ["📎", "📦", "📋"],
     "attention": "⚠️",
-    "attention_anim": "⚠️❗❕",
+    "attention_anim": ["⚠️", "❗", "❕"],
     "info": "ℹ️",
-    "info_anim": "ℹ️📌🔍",
+    "info_anim": ["ℹ️", "📌", "🔍"],
     "phone": "📞",
-    "phone_anim": "📞📱☎️",
+    "phone_anim": ["📞", "📱", "☎️"],
     "delivery": "🚚",
-    "delivery_anim": "🚚📬📦",
+    "delivery_anim": ["🚚", "📬", "📦"],
     "printer": "🖨️",
-    "printer_anim": "🖨️⚡📄",
+    "printer_anim": ["🖨️", "⚡", "📄"],
     "copy": "📋",
-    "copy_anim": "📋🔄📑",
+    "copy_anim": ["📋", "🔄", "📑"],
     "question": "🤔",
-    "question_anim": "🤔❓💭",
+    "question_anim": ["🤔", "❓", "💭"],
     "order": "📋",
-    "order_anim": "📋✅📝",
+    "order_anim": ["📋", "✅", "📝"],
     "welcome": "👋",
-    "welcome_anim": "👋✨🌟",
+    "welcome_anim": ["👋", "✨", "🌟"],
     "heart": "❤️",
-    "heart_anim": "❤️💖💝",
+    "heart_anim": ["❤️", "💖", "💝"],
     "party": "🎉",
-    "party_anim": "🎉🎊🎈",
+    "party_anim": ["🎉", "🎊", "🎈"],
     "tada": "🎉",
     "confetti": "🎊",
     "balloon": "🎈",
@@ -136,35 +133,20 @@ def get_status_display(status):
 
 def get_anim_emoji(emoji_key):
     """Возвращает случайный эмодзи из анимированной группы"""
-    emoji_str = EMOJI.get(emoji_key, emoji_key)
-    if ' ' in emoji_str:
-        emojis = emoji_str.split()
-        return random.choice(emojis)
-    return emoji_str
-
-def animate_text(text, style="normal"):
-    """Добавляет анимацию в текст"""
-    if style == "title":
-        return f"{get_anim_emoji('sparkles')} *{text}* {get_anim_emoji('sparkles')}"
-    elif style == "success":
-        return f"{get_anim_emoji('success_anim')} *{text}* {get_anim_emoji('party_anim')}"
-    elif style == "error":
-        return f"{get_anim_emoji('error_anim')} *{text}* {get_anim_emoji('error_anim')}"
-    elif style == "welcome":
-        return f"{get_anim_emoji('welcome_anim')} *{text}* {get_anim_emoji('heart_anim')}"
-    else:
-        return f"*{text}*"
+    emoji_value = EMOJI.get(emoji_key, emoji_key)
+    if isinstance(emoji_value, list):
+        return random.choice(emoji_value)
+    return emoji_value
 
 def create_progress_bar(current, total, width=10):
     """Создает анимированную полосу прогресса"""
     if total == 0:
-        return "[" + "⚪" * width + "]"
+        return "⬜" * width
     
     filled = int((current / total) * width)
     empty = width - filled
     
-    # Чередуем символы для анимации
-    fill_chars = ["🟩", "🟨", "🟧", "🟥"][:filled] if filled > 0 else []
+    fill_chars = ["🟩"] * filled
     empty_chars = ["⬜"] * empty
     
     bar = "".join(fill_chars + empty_chars)
@@ -223,26 +205,24 @@ def update_order_status(order_id, new_status):
             if user_id and bot:
                 try:
                     status_emojis = {
-                        "new": "🆕✨",
-                        "processing": "🔄⚡",
-                        "printing": "🖨️🌟",
-                        "ready": "✅🎉",
-                        "shipped": "📦🚀",
-                        "delivered": "🏁🎯",
-                        "cancelled": "❌💔"
+                        "new": "🆕",
+                        "processing": "🔄",
+                        "printing": "🖨️",
+                        "ready": "✅",
+                        "shipped": "📦",
+                        "delivered": "🏁",
+                        "cancelled": "❌"
                     }.get(new_status, "📌")
                     
                     bot.send_message(
                         chat_id=user_id,
                         text=(
                             f"{status_emojis} *СТАТУС ЗАКАЗА ИЗМЕНЕН!*\n\n"
-                            f"┌─────────────────✨\n"
-                            f"│ 🆔 *Заказ:* `{order_id}`\n"
-                            f"│ 📌 *Новый статус:* {get_status_display(new_status)}\n"
-                            f"└─────────────────✨\n\n"
+                            f"🆔 Заказ: `{order_id}`\n"
+                            f"📌 Новый статус: {get_status_display(new_status)}\n\n"
                             f"{get_anim_emoji('heart')} Спасибо, что пользуетесь нашим сервисом!"
                         ),
-                        parse_mode="Markdown"
+                        parse_mode=ParseMode.MARKDOWN
                     )
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления: {e}")
@@ -462,48 +442,45 @@ def send_admin_notification(order_data, order_id, order_folder):
         
         admin_message = (
             f"{get_anim_emoji('party')} *НОВЫЙ ЗАКАЗ!* {get_anim_emoji('party')}\n\n"
-            f"┌─────────────────✨\n"
-            f"│ 👤 *Клиент:* {order_data['user_info']['first_name']}\n"
-            f"│ 🆔 *Username:* @{order_data['user_info']['username']}\n"
-            f"│ 📱 *ID:* `{order_data['user_info']['user_id']}`\n"
-            f"└─────────────────✨\n\n"
+            f"👤 Клиент: {order_data['user_info']['first_name']}\n"
+            f"🆔 Username: @{order_data['user_info']['username']}\n"
+            f"📱 ID: `{order_data['user_info']['user_id']}`\n\n"
         )
         
         if order_data['type'] == 'photo':
             format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
             admin_message += (
-                f"{get_anim_emoji('photos')} *Тип:* Фотопечать\n"
-                f"├ 📏 *Формат:* {format_names[order_data['format']]}\n"
+                f"{get_anim_emoji('photos')} Тип: Фотопечать\n"
+                f"📏 Формат: {format_names[order_data['format']]}\n"
             )
         else:
             color_names = {"bw": "⚫ Черно-белая", "color": "🎨 Цветная"}
             admin_message += (
-                f"{get_anim_emoji('documents')} *Тип:* Документы\n"
-                f"├ 🎨 *Печать:* {color_names[order_data['color']]}\n"
+                f"{get_anim_emoji('documents')} Тип: Документы\n"
+                f"🎨 Печать: {color_names[order_data['color']]}\n"
             )
         
         admin_message += (
-            f"├ 📦 *Копий:* {order_data['quantity']}\n"
-            f"└ 📎 *Файлов:* {len(order_data['files'])}\n\n"
+            f"📦 Копий: {order_data['quantity']}\n"
+            f"📎 Файлов: {len(order_data['files'])}\n\n"
         )
         
         if photo_files:
-            admin_message += f"📸 *Фото:* {len(photo_files)} файлов, {total_photos} фото\n"
+            admin_message += f"📸 Фото: {len(photo_files)} файлов, {total_photos} фото\n"
         if doc_files:
-            admin_message += f"📄 *Документы:* {len(doc_files)} файлов, {total_pages} страниц\n"
+            admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц\n"
         
         admin_message += (
-            f"\n{get_anim_emoji('money_anim')} *Сумма:* {order_data['total']} руб.\n"
-            f"{get_anim_emoji('time_anim')} *Срок:* {order_data['delivery']}\n\n"
-            f"🔗 *Ссылка:* {order_url}\n\n"
-            f"{get_anim_emoji('rocket')} *УДАЧНОЙ РАБОТЫ!*"
+            f"\n{get_anim_emoji('money_anim')} Сумма: {order_data['total']} руб.\n"
+            f"{get_anim_emoji('time_anim')} Срок: {order_data['delivery']}\n\n"
+            f"🔗 Ссылка: {order_url}"
         )
         
         if bot:
             bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=admin_message,
-                parse_mode="Markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
             
     except Exception as e:
@@ -512,26 +489,20 @@ def send_admin_notification(order_data, order_id, order_folder):
 # ========== КРАСОЧНЫЕ ФУНКЦИИ ДЛЯ ФОРМАТИРОВАНИЯ ==========
 def format_welcome_message(user_first_name):
     """Форматирует приветственное сообщение"""
-    welcome_emojis = " ".join([get_anim_emoji('welcome_anim'), get_anim_emoji('heart_anim'), get_anim_emoji('sparkles')])
+    welcome_emojis = f"{get_anim_emoji('welcome_anim')} {get_anim_emoji('heart_anim')} {get_anim_emoji('sparkles')}"
     
     return (
         f"{welcome_emojis} *ДОБРО ПОЖАЛОВАТЬ, {user_first_name.upper()}!* {welcome_emojis}\n\n"
-        f"┌─────────────────🌟\n"
-        f"│ {get_anim_emoji('printer_anim')} *Я помогу распечатать:*\n"
-        f"│  {get_anim_emoji('photos')} Фотографии – любые размеры\n"
-        f"│  {get_anim_emoji('documents')} Документы – PDF, Word\n"
-        f"└─────────────────🌟\n\n"
-        f"┌─────────────────✨\n"
-        f"│ {get_anim_emoji('files_anim')} *Как это работает:*\n"
-        f"│  1️⃣ Отправляй файлы (можно несколько)\n"
-        f"│  2️⃣ Выбери параметры печати\n"
-        f"│  3️⃣ Получи расчёт стоимости\n"
-        f"│  4️⃣ Подтверди заказ\n"
-        f"└─────────────────✨\n\n"
-        f"┌─────────────────📞\n"
-        f"│ {get_anim_emoji('phone_anim')} *Контакты:* `{CONTACT_PHONE}`\n"
-        f"│ {get_anim_emoji('delivery_anim')} *Доставка:* {DELIVERY_OPTIONS}\n"
-        f"└─────────────────📞\n\n"
+        f"🌟 *Я помогу распечатать:*\n"
+        f"  {get_anim_emoji('photos')} Фотографии – любые размеры\n"
+        f"  {get_anim_emoji('documents')} Документы – PDF, Word\n\n"
+        f"✨ *Как это работает:*\n"
+        f"  1️⃣ Отправляй файлы (можно несколько)\n"
+        f"  2️⃣ Выбери параметры печати\n"
+        f"  3️⃣ Получи расчёт стоимости\n"
+        f"  4️⃣ Подтверди заказ\n\n"
+        f"📞 *Контакты:* `{CONTACT_PHONE}`\n"
+        f"🚚 *Доставка:* {DELIVERY_OPTIONS}\n\n"
         f"{get_anim_emoji('star')} *Отправляй файлы и начинаем!* {get_anim_emoji('star')}"
     )
 
@@ -544,23 +515,21 @@ def format_file_added_message(stats):
     files_count = stats.get('files_count', 0)
     
     text = f"{get_anim_emoji('success_anim')} *ФАЙЛ УСПЕШНО ДОБАВЛЕН!* {get_anim_emoji('party_anim')}\n\n"
-    text += f"┌─────────────────📊\n"
-    text += f"│ *ТЕКУЩАЯ СТАТИСТИКА:*\n"
+    text += f"📊 *ТЕКУЩАЯ СТАТИСТИКА:*\n"
     
     if photo_count > 0:
-        text += f"│ {get_anim_emoji('photos')} *Фото:* {photo_count} файлов\n"
+        text += f"  {get_anim_emoji('photos')} *Фото:* {photo_count} файлов\n"
     if doc_count > 0:
-        text += f"│ {get_anim_emoji('documents')} *Документы:* {doc_count} файлов\n"
-    text += f"│ {get_anim_emoji('files_anim')} *Всего файлов:* {files_count}\n"
+        text += f"  {get_anim_emoji('documents')} *Документы:* {doc_count} файлов\n"
+    text += f"  {get_anim_emoji('files_anim')} *Всего файлов:* {files_count}\n"
     
     if total_photos > 0:
         bar = create_progress_bar(total_photos, total_photos + total_pages)
-        text += f"│\n"
-        text += f"│ {get_anim_emoji('photos')} *Фото в оригинале:* {total_photos} {bar}\n"
+        text += f"\n  {get_anim_emoji('photos')} *Фото в оригинале:* {total_photos} {bar}\n"
     if total_pages > 0:
         bar = create_progress_bar(total_pages, total_photos + total_pages)
-        text += f"│ {get_anim_emoji('documents')} *Страниц:* {total_pages} {bar}\n"
-    text += f"└─────────────────📊\n\n"
+        text += f"  {get_anim_emoji('documents')} *Страниц:* {total_pages} {bar}\n"
+    text += "\n"
     
     return text
 
@@ -568,12 +537,10 @@ def format_photo_format_choice():
     """Форматирует сообщение выбора формата фото"""
     return (
         f"{get_anim_emoji('photos')} *ВЫБЕРИТЕ ФОРМАТ ПЕЧАТИ* {get_anim_emoji('photos')}\n\n"
-        f"┌─────────────────📏\n"
-        f"│ *Доступные форматы:*\n"
-        f"│  {get_anim_emoji('photo')} *Малый* – A6 / 10x15 см\n"
-        f"│  {get_anim_emoji('photo')} *Средний* – 13x18 / 15x21 см\n"
-        f"│  {get_anim_emoji('photo')} *Большой* – A4 / 21x30 см\n"
-        f"└─────────────────📏\n\n"
+        f"📏 *Доступные форматы:*\n"
+        f"  🖼 *Малый* – A6 / 10x15 см\n"
+        f"  🖼 *Средний* – 13x18 / 15x21 см\n"
+        f"  🖼 *Большой* – A4 / 21x30 см\n\n"
         f"{get_anim_emoji('info_anim')} *Цены зависят от количества*\n"
         f"Чем больше копий, тем дешевле! {get_anim_emoji('money_anim')}"
     )
@@ -582,31 +549,27 @@ def format_doc_type_choice():
     """Форматирует сообщение выбора типа печати документов"""
     return (
         f"{get_anim_emoji('documents')} *ВЫБЕРИТЕ ТИП ПЕЧАТИ* {get_anim_emoji('documents')}\n\n"
-        f"┌─────────────────🎨\n"
-        f"│ *Варианты печати:*\n"
-        f"│  ⚫ *Черно-белая* – для текстов\n"
-        f"│  🎨 *Цветная* – для графики\n"
-        f"└─────────────────🎨\n\n"
+        f"🎨 *Варианты печати:*\n"
+        f"  ⚫ *Черно-белая* – для текстов\n"
+        f"  🎨 *Цветная* – для графики\n\n"
         f"{get_anim_emoji('money_anim')} *Цены:*\n"
-        f"│  ⚫ от 10 руб./стр.\n"
-        f"│  🎨 от 20 руб./стр.\n"
-        f"└─ (зависит от объёма) {get_anim_emoji('zap')}"
+        f"  ⚫ от 10 руб./стр.\n"
+        f"  🎨 от 20 руб./стр.\n"
+        f"  (зависит от объёма) {get_anim_emoji('zap')}"
     )
 
 def format_quantity_choice(total_photos, total_pages, total_items):
     """Форматирует сообщение выбора количества копий"""
     text = f"{get_anim_emoji('copy_anim')} *ВЫБЕРИТЕ КОЛИЧЕСТВО КОПИЙ* {get_anim_emoji('copy_anim')}\n\n"
-    text += f"┌─────────────────📊\n"
-    text += f"│ *В ваших файлах:*\n"
+    text += f"📊 *В ваших файлах:*\n"
     
     if total_photos > 0:
-        text += f"│ {get_anim_emoji('photos')} Фото: *{total_photos}*\n"
+        text += f"  {get_anim_emoji('photos')} Фото: {total_photos}\n"
     if total_pages > 0:
-        text += f"│ {get_anim_emoji('documents')} Страниц: *{total_pages}*\n"
-    text += f"│ {get_anim_emoji('files_anim')} Всего единиц: *{total_items}*\n"
-    text += f"└─────────────────📊\n\n"
+        text += f"  {get_anim_emoji('documents')} Страниц: {total_pages}\n"
+    text += f"  {get_anim_emoji('files_anim')} Всего единиц: {total_items}\n\n"
     text += f"{get_anim_emoji('question_anim')} *Сколько копий напечатать?*\n"
-    text += f"Введите число или выберите из кнопок:"
+    text += f"Введите число (1-1000) или выберите из кнопок:"
     
     return text
 
@@ -620,18 +583,16 @@ def format_order_summary(session, details):
     
     text = f"{get_anim_emoji('order_anim')} *ПРОВЕРЬТЕ ЗАКАЗ* {get_anim_emoji('order_anim')}\n\n"
     text += f"{details}\n"
-    text += f"┌─────────────────📦\n"
-    text += f"│ *ИТОГОВАЯ ИНФОРМАЦИЯ:*\n"
-    text += f"│ {get_anim_emoji('files_anim')} Всего файлов: *{len(files)}*\n"
+    text += f"📦 *ИТОГОВАЯ ИНФОРМАЦИЯ:*\n"
+    text += f"  {get_anim_emoji('files_anim')} Всего файлов: {len(files)}\n"
     
     if total_photos_result > 0:
-        text += f"│ {get_anim_emoji('photos')} Фото к печати: *{total_photos_result}*\n"
+        text += f"  {get_anim_emoji('photos')} Фото к печати: {total_photos_result}\n"
     if total_pages_result > 0:
-        text += f"│ {get_anim_emoji('documents')} Страниц к печати: *{total_pages_result}*\n"
-    text += f"│\n"
-    text += f"│ {get_anim_emoji('money_anim')} *ИТОГОВАЯ СУММА:* *{total} руб.*\n"
-    text += f"│ {get_anim_emoji('time_anim')} *Срок выполнения:* {delivery}\n"
-    text += f"└─────────────────📦\n\n"
+        text += f"  {get_anim_emoji('documents')} Страниц к печати: {total_pages_result}\n"
+    text += f"\n"
+    text += f"  {get_anim_emoji('money_anim')} *ИТОГОВАЯ СУММА:* {total} руб.\n"
+    text += f"  {get_anim_emoji('time_anim')} *Срок выполнения:* {delivery}\n\n"
     text += f"{get_anim_emoji('question_anim')} *Всё верно?*"
     
     return text
@@ -651,33 +612,25 @@ def format_order_confirmation(order_id, session):
     
     text = (
         f"{get_anim_emoji('party_anim')} *ЗАКАЗ УСПЕШНО ОФОРМЛЕН!* {get_anim_emoji('tada')}\n\n"
-        f"┌─────────────────🎯\n"
-        f"│ {get_anim_emoji('order_anim')} *ДЕТАЛИ ЗАКАЗА:*\n"
-        f"│  🆔 *Номер:* `{order_id}`\n"
-        f"│  👤 *Клиент:* {session['user_info']['first_name']}\n"
-        f"│\n"
+        f"🎯 *ДЕТАЛИ ЗАКАЗА:*\n"
+        f"  🆔 *Номер:* `{order_id}`\n"
+        f"  👤 *Клиент:* {session['user_info']['first_name']}\n"
     )
     
     if original_photos > 0:
-        text += f"│  {get_anim_emoji('photos')} *Фото в оригинале:* {original_photos}\n"
-        text += f"│  {get_anim_emoji('photos')} *Фото к печати:* {original_photos * quantity}\n"
+        text += f"\n  {get_anim_emoji('photos')} *Фото в оригинале:* {original_photos}\n"
+        text += f"  {get_anim_emoji('photos')} *Фото к печати:* {original_photos * quantity}\n"
     if original_pages > 0:
-        text += f"│  {get_anim_emoji('documents')} *Страниц в оригинале:* {original_pages}\n"
-        text += f"│  {get_anim_emoji('documents')} *Страниц к печати:* {original_pages * quantity}\n"
-    text += f"│\n"
-    text += f"│  {get_anim_emoji('money_anim')} *Сумма к оплате:* *{total} руб.*\n"
-    text += f"│  {get_anim_emoji('time_anim')} *Срок выполнения:* {delivery}\n"
-    text += f"└─────────────────🎯\n\n"
-    text += f"┌─────────────────📞\n"
-    text += f"│ {get_anim_emoji('phone_anim')} *КОНТАКТНАЯ ИНФОРМАЦИЯ:*\n"
-    text += f"│  📞 *Телефон:* `{CONTACT_PHONE}`\n"
-    text += f"│  {get_anim_emoji('delivery_anim')} *Способы получения:* {DELIVERY_OPTIONS}\n"
-    text += f"└─────────────────📞\n\n"
-    text += f"┌─────────────────📌\n"
-    text += f"│ *СТАТУС ЗАКАЗА:* {get_status_display('new')}\n"
-    text += f"│ Вы будете получать уведомления\n"
-    text += f"│ при изменении статуса!\n"
-    text += f"└─────────────────📌\n\n"
+        text += f"\n  {get_anim_emoji('documents')} *Страниц в оригинале:* {original_pages}\n"
+        text += f"  {get_anim_emoji('documents')} *Страниц к печати:* {original_pages * quantity}\n"
+    text += f"\n"
+    text += f"  {get_anim_emoji('money_anim')} *Сумма к оплате:* {total} руб.\n"
+    text += f"  {get_anim_emoji('time_anim')} *Срок выполнения:* {delivery}\n\n"
+    text += f"📞 *КОНТАКТНАЯ ИНФОРМАЦИЯ:*\n"
+    text += f"  📞 *Телефон:* `{CONTACT_PHONE}`\n"
+    text += f"  {get_anim_emoji('delivery_anim')} *Способы получения:* {DELIVERY_OPTIONS}\n\n"
+    text += f"📌 *СТАТУС ЗАКАЗА:* {get_status_display('new')}\n"
+    text += f"Вы будете получать уведомления при изменении статуса!\n\n"
     text += f"{get_anim_emoji('heart_anim')} *СПАСИБО ЗА ЗАКАЗ!* {get_anim_emoji('heart_anim')}"
     
     return text
@@ -698,7 +651,7 @@ def start(update, context):
     
     update.message.reply_text(
         welcome,
-        parse_mode="Markdown"
+        parse_mode=ParseMode.MARKDOWN
     )
     return WAITING_FOR_FILE
 
@@ -821,7 +774,7 @@ def process_media_group(user_id, media_group_id, context):
             context.bot.send_message(
                 chat_id=user_id,
                 text=f"{get_anim_emoji('error_anim')} *Ошибка загрузки файлов*",
-                parse_mode="Markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
             return
         
@@ -860,7 +813,7 @@ def process_media_group(user_id, media_group_id, context):
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
@@ -907,7 +860,7 @@ def process_single_file(update, context):
             message.reply_text(
                 f"{get_anim_emoji('error_anim')} *Неподдерживаемый формат*\n\n"
                 f"Отправьте: JPG, PNG, PDF, DOC, DOCX",
-                parse_mode="Markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
             return WAITING_FOR_FILE
     elif message.photo:
@@ -921,7 +874,7 @@ def process_single_file(update, context):
     if not file_path:
         message.reply_text(
             f"{get_anim_emoji('error_anim')} *Ошибка загрузки*",
-            parse_mode="Markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
         return WAITING_FOR_FILE
     
@@ -979,7 +932,7 @@ def process_single_file(update, context):
     
     message.reply_text(
         text,
-        parse_mode="Markdown",
+        parse_mode=ParseMode.MARKDOWN,
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return WAITING_FOR_FILE
@@ -1008,22 +961,23 @@ def cancel_order(user_id, query=None, context=None):
         try:
             query.edit_message_text(
                 text,
-                parse_mode="Markdown",
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup
             )
-        except:
+        except Exception as e:
+            logger.error(f"Ошибка редактирования: {e}")
             if context:
                 context.bot.send_message(
                     chat_id=user_id,
                     text=text,
-                    parse_mode="Markdown",
+                    parse_mode=ParseMode.MARKDOWN,
                     reply_markup=reply_markup
                 )
     elif context:
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
     
@@ -1044,7 +998,7 @@ def button_handler(update, context):
         query.edit_message_text(
             f"{get_anim_emoji('files_anim')} *Отправьте следующие файлы*\n\n"
             f"Можно отправлять несколько файлов за раз!",
-            parse_mode="Markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
         return WAITING_FOR_FILE
     
@@ -1063,7 +1017,7 @@ def button_handler(update, context):
             f"Отправьте файлы для печати:\n"
             f"📸 JPG, PNG – фотографии\n"
             f"📄 PDF, DOC, DOCX – документы",
-            parse_mode="Markdown"
+            parse_mode=ParseMode.MARKDOWN
         )
         return WAITING_FOR_FILE
     
@@ -1082,7 +1036,7 @@ def button_handler(update, context):
         
         query.edit_message_text(
             text,
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -1101,7 +1055,7 @@ def button_handler(update, context):
         
         query.edit_message_text(
             text,
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -1134,11 +1088,11 @@ def button_handler(update, context):
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
                 details += (
-                    f"┌─{get_anim_emoji('photo')} *Файл {i}:*\n"
-                    f"│  📄 `{f['name'][:30]}`...\n"
-                    f"│  📸 {f['items']} фото × {quantity} = *{f['items'] * quantity} фото*\n"
-                    f"│  💰 {file_total // quantity} руб./копия\n"
-                    f"└─💰 *Итого:* {file_total} руб.\n\n"
+                    f"{get_anim_emoji('photo')} *Файл {i}:*\n"
+                    f"  📄 `{f['name'][:30]}`...\n"
+                    f"  📸 {f['items']} фото × {quantity} = {f['items'] * quantity} фото\n"
+                    f"  💰 {file_total // quantity} руб./копия\n"
+                    f"  💰 *Итого:* {file_total} руб.\n\n"
                 )
             else:
                 price_dict = DOC_PRICES[session["color"]]
@@ -1146,11 +1100,11 @@ def button_handler(update, context):
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
                 details += (
-                    f"┌─{get_anim_emoji('document')} *Файл {i}:*\n"
-                    f"│  📄 `{f['name'][:30]}`...\n"
-                    f"│  📄 {f['items']} стр. × {quantity} = *{file_items} стр.*\n"
-                    f"│  💰 {file_total // file_items} руб./стр.\n"
-                    f"└─💰 *Итого:* {file_total} руб.\n\n"
+                    f"{get_anim_emoji('document')} *Файл {i}:*\n"
+                    f"  📄 `{f['name'][:30]}`...\n"
+                    f"  📄 {f['items']} стр. × {quantity} = {file_items} стр.\n"
+                    f"  💰 {file_total // file_items} руб./стр.\n"
+                    f"  💰 *Итого:* {file_total} руб.\n\n"
                 )
         
         session["total"] = total
@@ -1169,7 +1123,7 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return CONFIRMING_ORDER
@@ -1194,7 +1148,7 @@ def button_handler(update, context):
             context.bot.send_message(
                 chat_id=user_id,
                 text=client_message,
-                parse_mode="Markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
             
             photo_files = [f for f in session['files'] if f['type'] == 'photo']
@@ -1221,7 +1175,7 @@ def button_handler(update, context):
             context.bot.send_message(
                 chat_id=user_id,
                 text=f"{get_anim_emoji('error_anim')} *Ошибка при сохранении заказа*",
-                parse_mode="Markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
         
         for d in session.get("temp_dirs", []):
@@ -1233,7 +1187,7 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=f"{get_anim_emoji('question_anim')} Хотите оформить ещё один заказ?",
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return WAITING_FOR_FILE
@@ -1241,28 +1195,29 @@ def button_handler(update, context):
     return WAITING_FOR_FILE
 
 def get_quantity_keyboard():
-    """Клавиатура выбора количества (красочная)"""
+    """Клавиатура выбора количества"""
     keyboard = [
         [
-            InlineKeyboardButton("1️⃣ 1", callback_data="qty_1"), 
-            InlineKeyboardButton("2️⃣ 2", callback_data="qty_2"),
-            InlineKeyboardButton("3️⃣ 3", callback_data="qty_3"), 
-            InlineKeyboardButton("4️⃣ 4", callback_data="qty_4"),
-            InlineKeyboardButton("5️⃣ 5", callback_data="qty_5")
+            InlineKeyboardButton("1", callback_data="qty_1"), 
+            InlineKeyboardButton("2", callback_data="qty_2"),
+            InlineKeyboardButton("3", callback_data="qty_3"), 
+            InlineKeyboardButton("4", callback_data="qty_4"),
+            InlineKeyboardButton("5", callback_data="qty_5")
         ],
         [
-            InlineKeyboardButton("🔟 10", callback_data="qty_10"), 
-            InlineKeyboardButton("2️⃣0️⃣ 20", callback_data="qty_20"),
-            InlineKeyboardButton("3️⃣0️⃣ 30", callback_data="qty_30"), 
-            InlineKeyboardButton("5️⃣0️⃣ 50", callback_data="qty_50"),
-            InlineKeyboardButton("💯 100", callback_data="qty_100")
+            InlineKeyboardButton("10", callback_data="qty_10"), 
+            InlineKeyboardButton("20", callback_data="qty_20"),
+            InlineKeyboardButton("30", callback_data="qty_30"), 
+            InlineKeyboardButton("50", callback_data="qty_50"),
+            InlineKeyboardButton("100", callback_data="qty_100")
         ],
         [
-            InlineKeyboardButton("2️⃣0️⃣0️⃣ 200", callback_data="qty_200"), 
-            InlineKeyboardButton("3️⃣0️⃣0️⃣ 300", callback_data="qty_300"),
-            InlineKeyboardButton("4️⃣0️⃣0️⃣ 400", callback_data="qty_400"), 
-            InlineKeyboardButton("5️⃣0️⃣0️⃣ 500", callback_data="qty_500")
+            InlineKeyboardButton("200", callback_data="qty_200"), 
+            InlineKeyboardButton("300", callback_data="qty_300"),
+            InlineKeyboardButton("400", callback_data="qty_400"), 
+            InlineKeyboardButton("500", callback_data="qty_500")
         ],
+        [InlineKeyboardButton("✏️ Ввести вручную", callback_data="manual_input")],
         [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -1276,21 +1231,23 @@ def handle_quantity_input(update, context):
         update.message.reply_text(
             f"{get_anim_emoji('attention_anim')} *Введите число от 1 до 1000*\n\n"
             f"Или выберите из кнопок:",
-            parse_mode="Markdown",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
     
+    # Создаем callback как при нажатии кнопки
     context.user_data['temp_quantity'] = quantity
     query = type('Query', (), {
         'data': f'qty_{quantity}',
         'from_user': update.effective_user,
         'message': update.message,
-        'answer': lambda: None
+        'answer': lambda: None,
+        'edit_message_text': lambda *args, **kwargs: None
     })
     return button_handler(update, context)
 
-# ========== ВЕБ-ИНТЕРФЕЙС (оставляем как есть) ==========
+# ========== ВЕБ-ИНТЕРФЕЙС ==========
 app = Flask(__name__)
 
 @app.route('/orders/')
@@ -1710,6 +1667,21 @@ bot = telegram.Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
+# Добавляем обработчик ошибок
+def error_handler(update, context):
+    logger.error(f"Ошибка: {context.error}")
+    try:
+        if update and update.effective_chat:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"{get_anim_emoji('error_anim')} *Произошла ошибка*\n\nПожалуйста, попробуйте еще раз или начните заново с /start",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except:
+        pass
+
+dispatcher.add_error_handler(error_handler)
+
 conv_handler = ConversationHandler(
     entry_points=[
         MessageHandler(Filters.document | Filters.photo, handle_file),
@@ -1732,18 +1704,27 @@ conv_handler = ConversationHandler(
             MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
             CallbackQueryHandler(button_handler, pattern="^qty_.*"),
             CallbackQueryHandler(button_handler, pattern="^cancel$"),
+            CallbackQueryHandler(button_handler, pattern="^manual_input$"),
         ],
         CONFIRMING_ORDER: [
             CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
         ],
     },
     fallbacks=[CommandHandler("start", start)],
+    allow_reentry=True,
+    per_user=True,
+    per_chat=True,
 )
 
 dispatcher.add_handler(conv_handler)
 
+# Устанавливаем вебхук
 webhook_url = f"{RENDER_URL}/webhook"
-updater.bot.set_webhook(url=webhook_url)
+try:
+    updater.bot.set_webhook(url=webhook_url)
+    logger.info(f"✅ Веб-хук установлен: {webhook_url}")
+except Exception as e:
+    logger.error(f"❌ Ошибка установки веб-хука: {e}")
 
 print(f"✅ Веб-хук: {webhook_url}")
 print("✅ БОТ ГОТОВ К РАБОТЕ!")

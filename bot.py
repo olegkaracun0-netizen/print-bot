@@ -119,9 +119,12 @@ def update_order_status(order_id, new_status):
                 try:
                     bot.send_message(
                         chat_id=user_id,
-                        text=f"📢 *Статус вашего заказа изменён*\n\n"
-                             f"🆔 Заказ: {order_id}\n"
-                             f"📌 Новый статус: {get_status_display(new_status)}",
+                        text=(
+                            "🔔 *Статус вашего заказа изменён!*\n"
+                            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+                            f"🆔 Заказ: `{order_id}`\n"
+                            f"📌 Новый статус: *{get_status_display(new_status)}*"
+                        ),
                         parse_mode="Markdown"
                     )
                 except Exception as e:
@@ -303,23 +306,33 @@ def send_admin_notification(order_data, order_id, order_folder):
         total_photos = sum(f['items'] for f in photo_files)
         total_pages = sum(f['items'] for f in doc_files)
 
-        msg = f"🆕 НОВЫЙ ЗАКАЗ!\n\n👤 {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n🆔 {order_data['user_info']['user_id']}\n\n"
+        msg = (
+            "🔔 *НОВЫЙ ЗАКАЗ!*\n"
+            "━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"👤 *{order_data['user_info']['first_name']}* (@{order_data['user_info']['username']})\n"
+            f"🆔 ID: `{order_data['user_info']['user_id']}`\n\n"
+        )
         if order_data['type'] == 'photo':
-            fn = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
-            msg += f"📸 Фото | Формат: {fn[order_data['format']]}\n"
+            fn = {"small": "10×15 / A6", "medium": "13×18 / 15×21", "large": "A4 / 21×30"}
+            msg += f"🖼 Тип: *Фото* | Формат: *{fn[order_data['format']]}*\n"
         else:
-            cn = {"bw": "Черно-белая", "color": "Цветная"}
-            msg += f"📄 Документы | {cn[order_data['color']]}\n"
+            cn = {"bw": "⚫️ Чёрно-белая", "color": "🌈 Цветная"}
+            msg += f"📄 Тип: *Документы* | Печать: *{cn[order_data['color']]}*\n"
 
-        msg += f"📦 Копий: {order_data['quantity']} | Файлов: {len(order_data['files'])}\n"
+        msg += f"📦 Копий: *{order_data['quantity']}* | Файлов: *{len(order_data['files'])}*\n"
         if photo_files:
-            msg += f"📸 Фото: {len(photo_files)} файлов, {total_photos} шт.\n"
+            msg += f"📸 Фото: {len(photo_files)} файлов → *{total_photos} шт.*\n"
         if doc_files:
-            msg += f"📄 Документы: {len(doc_files)} файлов, {total_pages} стр.\n"
-        msg += f"💰 {order_data['total']} руб. | ⏳ {order_data['delivery']}\n\n🔗 {order_url}"
+            msg += f"📄 Документы: {len(doc_files)} файлов → *{total_pages} стр.*\n"
+        msg += (
+            f"\n━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 *Сумма: {order_data['total']} руб.*\n"
+            f"⏳ Срок: *{order_data['delivery']}*\n\n"
+            f"🔗 [Открыть заказ]({order_url})"
+        )
 
         if bot:
-            bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg)
+            bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"❌ Ошибка уведомления админу: {e}")
 
@@ -334,13 +347,23 @@ def start(update, context):
         del user_sessions[user_id]
 
     update.message.reply_text(
-        f"👋 Привет, {user.first_name}!\n\n"
-        "📸🖨️ Я помогу распечатать фото и документы.\n\n"
-        "📎 Отправляй файлы (JPG, PNG, PDF, DOC, DOCX)\n"
-        "📦 Можно отправлять несколько файлов за раз\n"
-        "📊 Я посчитаю количество и рассчитаю стоимость\n\n"
-        f"📞 Контакт: {CONTACT_PHONE}\n"
-        f"🚚 Доставка: {DELIVERY_OPTIONS}"
+        f"👋 *Привет, {user.first_name}!*\n"
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+        "🖨️ Я твой личный помощник по печати!\n"
+        "Фото, документы — всё напечатаю быстро и качественно ✨\n\n"
+        "╔═══════════════════╗\n"
+        "║  📎 КАК РАБОТАЕТ  ║\n"
+        "╚═══════════════════╝\n\n"
+        "1️⃣ Отправь файлы _(JPG, PNG, PDF, DOC, DOCX)_\n"
+        "2️⃣ Выбери формат и количество копий\n"
+        "3️⃣ Подтверди заказ — готово! 🎉\n\n"
+        "📦 Можно кидать сразу несколько файлов!\n"
+        "🧮 Я сам всё посчитаю и назову цену\n\n"
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
+        f"📞 *Телефон:* {CONTACT_PHONE}\n"
+        f"🚚 *Доставка:* {DELIVERY_OPTIONS}\n\n"
+        "⬇️ _Жду твои файлы!_",
+        parse_mode="Markdown"
     )
     return WAITING_FOR_FILE
 
@@ -485,55 +508,71 @@ def process_single_file(update, context):
     photo_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'photo')
     doc_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'doc')
 
-    text = f"✅ Файл добавлен!\n\n📊 В очереди:\n"
+    text = (
+        "✅ *Файл принят!*\n"
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+        "📂 *В очереди на печать:*\n"
+    )
     if photo_count > 0:
-        text += f"📸 Фото файлов: {photo_count}\n"
+        text += f"  📸 Фото-файлов: *{photo_count}*\n"
     if doc_count > 0:
-        text += f"📄 Документов: {doc_count}\n"
+        text += f"  📄 Документов: *{doc_count}*\n"
     if user_sessions[user_id]["total_photos"] > 0:
-        text += f"📸 Всего фото: {user_sessions[user_id]['total_photos']}\n"
+        text += f"  🖼 Всего фото: *{user_sessions[user_id]['total_photos']} шт.*\n"
     if user_sessions[user_id]["total_pages"] > 0:
-        text += f"📄 Всего страниц: {user_sessions[user_id]['total_pages']}\n"
+        text += f"  📃 Всего страниц: *{user_sessions[user_id]['total_pages']} шт.*\n"
 
     text += "\n"
     keyboard = _build_format_keyboard(doc_count)
-    text += "Выберите тип печати:" if doc_count > 0 else "Выберите формат печати для фото:"
-    message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    if doc_count > 0:
+        text += "🖨️ *Выберите тип печати:*"
+    else:
+        text += "🖼 *Выберите формат фото:*"
+    message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     return WAITING_FOR_FILE
 
 def _send_format_choice(user_id, context, photo_count, doc_count, total_photos, total_pages):
-    text = f"✅ Загружено {photo_count + doc_count} файлов!\n\n📊 Статистика:\n"
+    total_files = photo_count + doc_count
+    text = (
+        f"🎉 *Отлично! Загружено {total_files} {'файл' if total_files == 1 else 'файлов'}*\n"
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+        "📂 *Состав заказа:*\n"
+    )
     if photo_count > 0:
-        text += f"📸 Фото: {photo_count}\n"
+        text += f"  📸 Фото-файлов: *{photo_count}*\n"
     if doc_count > 0:
-        text += f"📄 Документы: {doc_count}\n"
+        text += f"  📄 Документов: *{doc_count}*\n"
     if total_photos > 0:
-        text += f"📸 Всего фото: {total_photos}\n"
+        text += f"  🖼 Всего фото: *{total_photos} шт.*\n"
     if total_pages > 0:
-        text += f"📄 Всего страниц: {total_pages}\n"
+        text += f"  📃 Всего страниц: *{total_pages} шт.*\n"
     text += "\n"
-    text += "Выберите тип печати для документов:" if doc_count > 0 else "Выберите формат печати для фото:"
+    if doc_count > 0:
+        text += "🖨️ *Выберите тип печати:*"
+    else:
+        text += "🖼 *Выберите формат фото:*"
 
     context.bot.send_message(
         chat_id=user_id,
         text=text,
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(_build_format_keyboard(doc_count))
     )
 
 def _build_format_keyboard(doc_count):
     if doc_count > 0:
         return [
-            [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
-            [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
+            [InlineKeyboardButton("⚫️ Чёрно-белая печать", callback_data="doc_bw")],
+            [InlineKeyboardButton("🌈 Цветная печать", callback_data="doc_color")],
             [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
-            [InlineKeyboardButton("❌ Отменить заказ", callback_data="cancel")]
+            [InlineKeyboardButton("🗑 Отменить заказ", callback_data="cancel")]
         ]
     return [
-        [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
-        [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
-        [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
+        [InlineKeyboardButton("🔹 Малый — 10×15 / A6", callback_data="photo_small")],
+        [InlineKeyboardButton("🔷 Средний — 13×18 / 15×21", callback_data="photo_medium")],
+        [InlineKeyboardButton("🟦 Большой — A4 / 21×30", callback_data="photo_large")],
         [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
-        [InlineKeyboardButton("❌ Отменить заказ", callback_data="cancel")]
+        [InlineKeyboardButton("🗑 Отменить заказ", callback_data="cancel")]
     ]
 
 def cancel_order(user_id, query=None, context=None):
@@ -542,8 +581,13 @@ def cancel_order(user_id, query=None, context=None):
             shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
 
-    keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
-    text = "❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?"
+    keyboard = [[InlineKeyboardButton("🔄 Начать новый заказ", callback_data="new_order")]]
+    text = (
+        "🗑 *Заказ отменён*\n"
+        "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+        "Все загруженные файлы удалены 🧹\n\n"
+        "Хотите оформить новый заказ? 👇"
+    )
 
     if query:
         try:
@@ -558,21 +602,22 @@ def cancel_order(user_id, query=None, context=None):
 
 def get_quantity_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("1",   callback_data="qty_1"),
-         InlineKeyboardButton("2",   callback_data="qty_2"),
-         InlineKeyboardButton("3",   callback_data="qty_3"),
-         InlineKeyboardButton("4",   callback_data="qty_4"),
-         InlineKeyboardButton("5",   callback_data="qty_5")],
-        [InlineKeyboardButton("10",  callback_data="qty_10"),
+        [InlineKeyboardButton("1️⃣",  callback_data="qty_1"),
+         InlineKeyboardButton("2️⃣",  callback_data="qty_2"),
+         InlineKeyboardButton("3️⃣",  callback_data="qty_3"),
+         InlineKeyboardButton("4️⃣",  callback_data="qty_4"),
+         InlineKeyboardButton("5️⃣",  callback_data="qty_5")],
+        [InlineKeyboardButton("🔟",  callback_data="qty_10"),
          InlineKeyboardButton("20",  callback_data="qty_20"),
          InlineKeyboardButton("30",  callback_data="qty_30"),
          InlineKeyboardButton("50",  callback_data="qty_50"),
-         InlineKeyboardButton("100", callback_data="qty_100")],
+         InlineKeyboardButton("💯",  callback_data="qty_100")],
         [InlineKeyboardButton("200", callback_data="qty_200"),
          InlineKeyboardButton("300", callback_data="qty_300"),
          InlineKeyboardButton("400", callback_data="qty_400"),
          InlineKeyboardButton("500", callback_data="qty_500")],
-        [InlineKeyboardButton("❌ Отменить заказ", callback_data="cancel")]
+        [InlineKeyboardButton("✏️ Ввести своё число", callback_data="qty_custom_hint")],
+        [InlineKeyboardButton("🗑 Отменить заказ",    callback_data="cancel")]
     ])
 
 def _do_calculate(quantity, user_id):
@@ -591,7 +636,8 @@ def _do_calculate(quantity, user_id):
     total = 0
     total_photos_result = 0
     total_pages_result = 0
-    details = "📊 ДЕТАЛЬНЫЙ РАСЧЁТ:\n\n"
+
+    text = f"🧾 *ДЕТАЛИ ЗАКАЗА:*\n┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
 
     for i, f in enumerate(files, 1):
         if file_type == "photo":
@@ -599,22 +645,20 @@ def _do_calculate(quantity, user_id):
             file_total = calculate_price(price_dict, quantity)
             total += file_total
             total_photos_result += f['items'] * quantity
-            details += f"📸 Файл {i}: {f['name'][:35]}\n"
-            details += f"   • {f['items']} фото × {quantity} = {f['items'] * quantity} фото\n"
+            text += f"📸 *Файл {i}:* `{f['name'][:35]}`\n"
+            text += f"   └ {f['items']} фото × {quantity} копий = *{f['items'] * quantity} шт.*\n"
             if quantity > 0:
-                details += f"   • {file_total // quantity} руб./копия\n"
-            details += f"   • Итого: {file_total} руб.\n\n"
+                text += f"   └ Цена: {file_total // quantity} руб./копия → *{file_total} руб.*\n\n"
         else:
             price_dict = DOC_PRICES[session["color"]]
             file_items = f['items'] * quantity
             file_total = calculate_price(price_dict, file_items)
             total += file_total
             total_pages_result += file_items
-            details += f"📄 Файл {i}: {f['name'][:35]}\n"
-            details += f"   • {f['items']} стр. × {quantity} = {file_items} стр.\n"
+            text += f"📄 *Файл {i}:* `{f['name'][:35]}`\n"
+            text += f"   └ {f['items']} стр. × {quantity} копий = *{file_items} стр.*\n"
             if file_items > 0:
-                details += f"   • {file_total // file_items} руб./стр.\n"
-            details += f"   • Итого: {file_total} руб.\n\n"
+                text += f"   └ Цена: {file_total // file_items} руб./стр. → *{file_total} руб.*\n\n"
 
     delivery = estimate_delivery_time(total_photos_result + total_pages_result)
     session["total"] = total
@@ -622,15 +666,16 @@ def _do_calculate(quantity, user_id):
     session["total_pages"] = total_pages_result
     session["delivery"] = delivery
 
-    text = f"{details}\n📋 ПРОВЕРЬТЕ ЗАКАЗ:\n\n"
-    text += f"📦 Всего файлов: {len(files)}\n"
+    text += "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
+    text += f"📦 Файлов: *{len(files)}*\n"
     if total_photos_result > 0:
-        text += f"📸 Фото к печати: {total_photos_result}\n"
+        text += f"📸 Фото к печати: *{total_photos_result} шт.*\n"
     if total_pages_result > 0:
-        text += f"📄 Страниц к печати: {total_pages_result}\n"
-    text += f"💰 ИТОГОВАЯ СУММА: {total} руб.\n"
-    text += f"⏳ Срок выполнения: {delivery}\n\n"
-    text += "Всё верно?"
+        text += f"📃 Страниц к печати: *{total_pages_result} шт.*\n"
+    text += f"⏳ Срок: *{delivery}*\n"
+    text += f"┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
+    text += f"💰 *ИТОГО: {total} руб.*\n\n"
+    text += "☝️ _Всё верно? Подтверждаем?_"
 
     return text
 
@@ -645,7 +690,9 @@ def handle_quantity_input(update, context):
 
     if not quantity or quantity < 1 or quantity > 1000:
         update.message.reply_text(
-            "⚠️ Введите число от 1 до 1000\nИли выберите из кнопок:",
+            "⚠️ *Упс!* Введите число от *1 до 1000*\n\n"
+            "Или просто нажмите кнопку ниже 👇",
+            parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -659,10 +706,10 @@ def handle_quantity_input(update, context):
         return cancel_order(user_id, context=context)
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Подтвердить заказ", callback_data="confirm"),
-         InlineKeyboardButton("❌ Отменить", callback_data="cancel")]
+        [InlineKeyboardButton("✅ Да, оформить заказ!", callback_data="confirm")],
+        [InlineKeyboardButton("🗑 Нет, отменить",       callback_data="cancel")]
     ])
-    context.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard)
+    context.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="Markdown")
     return CONFIRMING_ORDER
 
 def button_handler(update, context):
@@ -677,8 +724,16 @@ def button_handler(update, context):
         return cancel_order(user_id, query, context)
 
     if data == "add_more":
-        query.edit_message_text("📤 Отправьте следующие файлы")
+        query.edit_message_text(
+            "📎 *Отправьте следующие файлы*\n\n"
+            "_JPG, PNG, PDF, DOC, DOCX — всё принимается!_",
+            parse_mode="Markdown"
+        )
         return WAITING_FOR_FILE
+
+    if data == "qty_custom_hint":
+        query.answer("Просто напишите число в чат! Например: 7", show_alert=True)
+        return ENTERING_QUANTITY
 
     if data == "new_order":
         if user_id in user_sessions:
@@ -686,7 +741,10 @@ def button_handler(update, context):
                 shutil.rmtree(d, ignore_errors=True)
             del user_sessions[user_id]
         query.edit_message_text(
-            "🔄 *НОВЫЙ ЗАКАЗ*\n\nОтправьте файлы для печати (JPG, PNG, PDF, DOC, DOCX):",
+            "🔄 *НОВЫЙ ЗАКАЗ*\n"
+            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+            "📎 Отправьте файлы для печати\n"
+            "_JPG, PNG, PDF, DOC, DOCX_",
             parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
@@ -696,9 +754,13 @@ def button_handler(update, context):
             return cancel_order(user_id, query, context)
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = data.split("_")[1]
+        fmt_names = {"small": "10×15 / A6", "medium": "13×18 / 15×21", "large": "A4 / 21×30"}
+        fmt = user_sessions[user_id]["format"]
         query.edit_message_text(
-            "🔢 Сколько копий каждого фото напечатать?\n"
-            "Нажмите кнопку или *введите число вручную*:",
+            f"🖼 *Формат: {fmt_names.get(fmt, fmt)}* — отличный выбор!\n"
+            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+            "🔢 *Сколько копий напечатать?*\n\n"
+            "👆 Нажми кнопку или *напиши число* прямо в чат:",
             parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
@@ -711,9 +773,13 @@ def button_handler(update, context):
         user_sessions[user_id]["color"] = data.split("_")[1]
         total_photos = user_sessions[user_id].get("total_photos", 0)
         total_pages = user_sessions[user_id].get("total_pages", 0)
+        color_name = "⚫️ Чёрно-белая" if data.split("_")[1] == "bw" else "🌈 Цветная"
         query.edit_message_text(
-            f"🔢 Файлы: {total_photos + total_pages} единиц (📸 {total_photos} фото, 📄 {total_pages} стр.)\n\n"
-            f"Сколько копий напечатать?\nНажмите кнопку или *введите число вручную*:",
+            f"🖨️ *Печать: {color_name}* — принято!\n"
+            "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+            f"📊 В заказе: 📸 {total_photos} фото + 📄 {total_pages} стр. = *{total_photos + total_pages} ед.*\n\n"
+            "🔢 *Сколько копий напечатать?*\n\n"
+            "👆 Нажми кнопку или *напиши число* прямо в чат:",
             parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
@@ -730,15 +796,15 @@ def button_handler(update, context):
             return cancel_order(user_id, query, context)
 
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ Подтвердить заказ", callback_data="confirm"),
-             InlineKeyboardButton("❌ Отменить", callback_data="cancel")]
+            [InlineKeyboardButton("✅ Да, оформить заказ!", callback_data="confirm")],
+            [InlineKeyboardButton("🗑 Нет, отменить",       callback_data="cancel")]
         ])
 
         try:
             query.message.delete()
         except Exception:
             pass
-        context.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard)
+        context.bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="Markdown")
         return CONFIRMING_ORDER
 
     if data == "confirm":
@@ -759,22 +825,26 @@ def button_handler(update, context):
             total_pages = sum(f['items'] for f in doc_files)
 
             client_msg = (
-                "✅ *ЗАКАЗ УСПЕШНО ОФОРМЛЕН!*\n\n"
+                "🎉 *ЗАКАЗ ОФОРМЛЕН!*\n"
+                "┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
                 f"🆔 Номер: `{order_id}`\n"
-                f"👤 Заказчик: {session['user_info']['first_name']}\n"
-                f"📦 Файлов: {len(session['files'])}\n"
+                f"👤 Заказчик: *{session['user_info']['first_name']}*\n"
+                f"📦 Файлов в заказе: *{len(session['files'])}*\n"
             )
             if total_photos > 0:
-                client_msg += f"📸 Фото к печати: {total_photos * session['quantity']}\n"
+                client_msg += f"📸 Фото к печати: *{total_photos * session['quantity']} шт.*\n"
             if total_pages > 0:
-                client_msg += f"📄 Страниц к печати: {total_pages * session['quantity']}\n"
+                client_msg += f"📃 Страниц к печати: *{total_pages * session['quantity']} шт.*\n"
             client_msg += (
-                f"💰 К оплате: {session['total']} руб.\n"
-                f"⏳ Срок: {session['delivery']}\n\n"
-                f"📞 {CONTACT_PHONE}\n"
-                f"🚚 {DELIVERY_OPTIONS}\n\n"
+                f"┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n"
+                f"💰 *К оплате: {session['total']} руб.*\n"
+                f"⏳ Срок выполнения: *{session['delivery']}*\n"
+                f"┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄\n\n"
+                f"📞 *Телефон:* {CONTACT_PHONE}\n"
+                f"🚚 *Доставка:* {DELIVERY_OPTIONS}\n\n"
                 f"📌 *Статус:* {get_status_display('new')}\n"
-                "Вы получите уведомление при изменении статуса.\n\nСпасибо за заказ! 😊"
+                "🔔 Пришлю уведомление при каждом изменении статуса\n\n"
+                "Спасибо за заказ! 🙏✨"
             )
             context.bot.send_message(chat_id=user_id, text=client_msg, parse_mode="Markdown")
 
@@ -785,7 +855,7 @@ def button_handler(update, context):
                         with open(pf['path'], 'rb') as ph:
                             data_bytes = ph.read()
                         if i == 0:
-                            media_group.append(InputMediaPhoto(data_bytes, caption=f"📸 Загруженные фото ({len(photo_files)} шт.)"))
+                            media_group.append(InputMediaPhoto(data_bytes, caption=f"📸 Ваши фото ({len(photo_files)} шт.) — всё получили!"))
                         else:
                             media_group.append(InputMediaPhoto(data_bytes))
                     if media_group:
@@ -793,20 +863,24 @@ def button_handler(update, context):
                 except Exception as e:
                     logger.error(f"Ошибка предпросмотра: {e}")
         else:
-            context.bot.send_message(chat_id=user_id, text="❌ Ошибка при сохранении заказа")
+            context.bot.send_message(
+                chat_id=user_id,
+                text="😔 *Что-то пошло не так при сохранении заказа*\n\nПожалуйста, попробуйте ещё раз или свяжитесь с нами: " + CONTACT_PHONE,
+                parse_mode="Markdown"
+            )
 
         for d in session.get("temp_dirs", []):
             shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
 
-        keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
+        keyboard = [[InlineKeyboardButton("🔄 Оформить ещё один заказ", callback_data="new_order")]]
         try:
             query.message.delete()
         except Exception:
             pass
         context.bot.send_message(
             chat_id=user_id,
-            text="Хотите оформить ещё один заказ?",
+            text="Хотите напечатать что-то ещё? 👇",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return WAITING_FOR_FILE
@@ -1249,6 +1323,7 @@ conv_handler = ConversationHandler(
             # ИСПРАВЛЕНО: текстовый ввод обрабатывается ПЕРВЫМ
             MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
             CallbackQueryHandler(button_handler, pattern=r"^qty_\d+$"),
+            CallbackQueryHandler(button_handler, pattern="^qty_custom_hint$"),
             CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
         CONFIRMING_ORDER: [

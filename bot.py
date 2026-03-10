@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-Исправлена кнопка отмены при выборе количества
+✨ ЖИВЫЕ ЭМОДЗИ И ИСПРАВЛЕННЫЕ ОШИБКИ ✨
 """
 
 import os
@@ -16,12 +16,14 @@ import shutil
 import traceback
 import zipfile
 import threading
+import random
+import time
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string, abort
 
 # Используем синхронную версию python-telegram-bot
 import telegram
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ParseMode
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
 
 import PyPDF2
@@ -33,8 +35,8 @@ if not TOKEN:
     print("❌ ОШИБКА: TOKEN не задан в переменных окружения!")
     sys.exit(1)
 
-# ID администратора для уведомлений (ваш Telegram ID)
-ADMIN_CHAT_ID = 483613049  # Ваш ID из логов
+# ID администратора для уведомлений
+ADMIN_CHAT_ID = 483613049
 
 RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
 if not RENDER_URL:
@@ -49,7 +51,6 @@ DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доста
 ORDERS_FOLDER = "заказы"
 ORDERS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FOLDER)
 
-# Создаем папку для заказов
 try:
     os.makedirs(ORDERS_PATH, exist_ok=True)
     print(f"📁 Папка заказов: {ORDERS_PATH}")
@@ -71,13 +72,119 @@ ORDER_STATUSES = {
     "cancelled": "❌ Отменен"
 }
 
+# ========== ЖИВЫЕ ЭМОДЗИ ==========
+class LiveEmoji:
+    """Класс для создания эффекта живых эмодзи"""
+    
+    def __init__(self):
+        self.emoji_pools = {
+            "sparkles": ["✨", "🌟", "💫", "⭐", "✨"],
+            "hearts": ["❤️", "💖", "💝", "💗", "💓", "❤️"],
+            "stars": ["⭐", "🌟", "✨", "💫", "⭐"],
+            "success": ["✅", "🎉", "✨", "🌟", "✅"],
+            "error": ["❌", "😱", "💔", "⚠️", "❌"],
+            "money": ["💰", "💎", "💵", "💶", "💰"],
+            "time": ["⏰", "⌛", "⏳", "🕐", "⏰"],
+            "photo": ["📸", "📷", "🎥", "📱", "📸"],
+            "document": ["📄", "📑", "📊", "📋", "📄"],
+            "printer": ["🖨️", "⚡", "📄", "✨", "🖨️"],
+            "delivery": ["🚚", "📦", "🚀", "✈️", "🚚"],
+            "phone": ["📞", "📱", "☎️", "📲", "📞"],
+            "attention": ["⚠️", "❗", "❕", "⁉️", "⚠️"],
+            "question": ["🤔", "❓", "💭", "🤨", "🤔"],
+            "welcome": ["👋", "🤝", "✋", "🖐️", "👋"],
+            "party": ["🎉", "🎊", "🎈", "🎁", "🎉"],
+            "fire": ["🔥", "⚡", "💥", "✨", "🔥"],
+            "rainbow": ["🌈", "☀️", "⭐", "🌟", "🌈"],
+            "crown": ["👑", "🏆", "🥇", "💎", "👑"],
+        }
+        
+        self.single_emojis = {
+            "file": "📎",
+            "copy": "📋",
+            "order": "📝",
+            "info": "ℹ️",
+            "zap": "⚡",
+            "dizzy": "💫",
+            "tada": "🎉",
+            "gift": "🎁",
+            "medal": "🏆",
+        }
+        
+        # Для создания эффекта пульсации
+        self.pulse_counter = 0
+    
+    def get(self, key, pulsate=False):
+        """Получить живой эмодзи"""
+        if key in self.emoji_pools:
+            pool = self.emoji_pools[key]
+            if pulsate:
+                # Создаем эффект пульсации
+                self.pulse_counter += 1
+                index = (self.pulse_counter // 2) % len(pool)
+                return pool[index]
+            else:
+                return random.choice(pool)
+        elif key in self.single_emojis:
+            return self.single_emojis[key]
+        return key
+    
+    def sequence(self, key, count=3):
+        """Получить последовательность живых эмодзи"""
+        if key in self.emoji_pools:
+            return " ".join(random.choices(self.emoji_pools[key], k=count))
+        return key
+    
+    def animate(self, key, speed="normal"):
+        """Создает анимированную строку"""
+        if key not in self.emoji_pools:
+            return key
+        
+        pool = self.emoji_pools[key]
+        if speed == "fast":
+            steps = 4
+        elif speed == "slow":
+            steps = 2
+        else:
+            steps = 3
+        
+        # Создаем последовательность для анимации
+        anim = []
+        for i in range(steps):
+            anim.append(random.choice(pool))
+        
+        return " ".join(anim)
+
+# Создаем глобальный объект с живыми эмодзи
+live_emoji = LiveEmoji()
+
 def get_status_display(status):
     """Возвращает отображение статуса"""
     return ORDER_STATUSES.get(status, status)
 
+def create_progress_bar(current, total, width=8):
+    """Создает анимированную полосу прогресса"""
+    if total == 0:
+        return "⬜" * width
+    
+    filled = int((current / total) * width)
+    empty = width - filled
+    
+    # Живые символы для прогресса
+    fill_chars = []
+    for i in range(filled):
+        if i == filled - 1:
+            # Последний элемент "пульсирует"
+            fill_chars.append(random.choice(["🟩", "🟨", "✨", "⚡"]))
+        else:
+            fill_chars.append("🟩")
+    
+    empty_chars = ["⬜"] * empty
+    
+    return "".join(fill_chars + empty_chars)
+
 # Загружаем историю заказов
 def load_orders_history():
-    """Загружает историю заказов из JSON файла"""
     try:
         if os.path.exists(ORDERS_DB_FILE):
             with open(ORDERS_DB_FILE, 'r', encoding='utf-8') as f:
@@ -88,7 +195,6 @@ def load_orders_history():
         return []
 
 def save_order_to_history(order_data):
-    """Сохраняет заказ в историю"""
     try:
         history = load_orders_history()
         history.append(order_data)
@@ -100,7 +206,6 @@ def save_order_to_history(order_data):
         return False
 
 def update_order_status(order_id, new_status):
-    """Обновляет статус заказа"""
     try:
         history = load_orders_history()
         updated = False
@@ -117,31 +222,29 @@ def update_order_status(order_id, new_status):
             with open(ORDERS_DB_FILE, 'w', encoding='utf-8') as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
             
-            # Обновляем файл информации в папке заказа
             order_folder = os.path.join(ORDERS_PATH, order_id)
             info_file = os.path.join(order_folder, "информация_о_заказе.txt")
             if os.path.exists(info_file):
                 with open(info_file, 'r', encoding='utf-8') as f:
                     content = f.read()
                 
-                # Заменяем статус в файле
-                import re
                 content = re.sub(r'Статус:.*\n', f'Статус: {get_status_display(new_status)}\n', content)
                 
                 with open(info_file, 'w', encoding='utf-8') as f:
                     f.write(content)
             
-            # Отправляем уведомление клиенту
             if user_id and bot:
                 try:
                     bot.send_message(
                         chat_id=user_id,
-                        text=f"📢 **Статус вашего заказа изменен**\n\n"
-                             f"🆔 Заказ: {order_id}\n"
-                             f"📌 Новый статус: {get_status_display(new_status)}",
-                        parse_mode="Markdown"
+                        text=(
+                            f"{live_emoji.animate('sparkles')} *СТАТУС ЗАКАЗА ИЗМЕНЕН!*\n\n"
+                            f"🆔 Заказ: `{order_id}`\n"
+                            f"📌 Новый статус: {get_status_display(new_status)}\n\n"
+                            f"{live_emoji.animate('hearts')} Спасибо, что пользуетесь нашим сервисом!"
+                        ),
+                        parse_mode=ParseMode.MARKDOWN
                     )
-                    logger.info(f"✅ Уведомление отправлено пользователю {user_id}")
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления: {e}")
             
@@ -151,9 +254,7 @@ def update_order_status(order_id, new_status):
         logger.error(f"Ошибка обновления статуса: {e}")
         return False
 
-# ========== ФУНКЦИЯ ДЛЯ ФОРМАТИРОВАНИЯ РАЗМЕРА ФАЙЛА ==========
 def format_file_size(size_bytes):
-    """Форматирует размер файла в человеко-читаемый вид"""
     if size_bytes < 1024:
         return f"{size_bytes} B"
     elif size_bytes < 1024 * 1024:
@@ -198,53 +299,42 @@ DOC_PRICES = {
     "color": {(1, 20): 50, (21, 100): 35, (101, 300): 25, (301, float("inf")): 20},
 }
 
-# ========== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ==========
 def calculate_price(price_dict, quantity):
-    """Рассчитывает стоимость по количеству"""
     for (min_q, max_q), price in price_dict.items():
         if min_q <= quantity <= max_q:
             return price * quantity
     return 0
 
 def estimate_delivery_time(total_items):
-    """Расчет срока доставки"""
     if total_items <= 50:
-        return "1 день"
+        return f"1 день {live_emoji.get('zap')}"
     elif total_items <= 200:
-        return "2 дня"
+        return f"2 дня {live_emoji.get('time')}"
     else:
-        return "3 дня"
+        return f"3 дня {live_emoji.get('time')}"
 
 def extract_number_from_text(text):
-    """Извлекает число из текста"""
     numbers = re.findall(r'\d+', text)
     return int(numbers[0]) if numbers else None
 
 def count_items_in_file(file_path, file_name):
-    """Подсчет количества в файле (фото = 1, документы = страницы)"""
     try:
         if file_name.lower().endswith('.pdf'):
             with open(file_path, 'rb') as f:
                 pdf = PyPDF2.PdfReader(f)
                 page_count = len(pdf.pages)
-                logger.info(f"📄 PDF: {file_name} - {page_count} страниц")
                 return page_count, "страниц", "документ"
                 
         elif file_name.lower().endswith(('.docx', '.doc')):
             doc = Document(file_path)
             paragraphs = len(doc.paragraphs)
             estimated_pages = max(1, paragraphs // 35)
-            
             tables_count = len(doc.tables)
             if tables_count > 0:
                 estimated_pages += tables_count // 2
-            
-            logger.info(f"📄 Word: {file_name} - {estimated_pages} страниц")
             return estimated_pages, "страниц", "документ"
             
         elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-            # Для фото всегда 1 фото
-            logger.info(f"📸 Фото: {file_name} - 1 фото")
             return 1, "фото", "фото"
             
         return 1, "единиц", "неизвестно"
@@ -253,60 +343,45 @@ def count_items_in_file(file_path, file_name):
         return 1, "единиц", "неизвестно"
 
 def download_file(file_obj, file_name):
-    """Скачивает файл во временную папку"""
     try:
         temp_dir = tempfile.mkdtemp()
         file_path = os.path.join(temp_dir, file_name)
         
-        # Универсальный метод скачивания
-        if hasattr(file_obj, 'get_file'):  # Для PhotoSize
+        if hasattr(file_obj, 'get_file'):
             file = file_obj.get_file()
             file.download(custom_path=file_path)
-        elif hasattr(file_obj, 'download'):  # Для Document
+        elif hasattr(file_obj, 'download'):
             file_obj.download(custom_path=file_path)
         else:
             with open(file_path, 'wb') as f:
                 file_content = file_obj.download_as_bytearray()
                 f.write(file_content)
         
-        logger.info(f"✅ Файл скачан: {file_path}")
         return file_path, temp_dir
     except Exception as e:
         logger.error(f"❌ Ошибка скачивания: {e}")
         return None, None
 
 def save_order_to_folder(user_id, username, order_data, files_info):
-    """Сохраняет заказ в папку на сервере"""
     try:
-        # Создаем уникальную папку для заказа
         clean_name = re.sub(r'[^\w\s-]', '', username) or f"user_{user_id}"
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         order_id = f"{clean_name}_{timestamp}"
         order_folder = os.path.join(ORDERS_PATH, order_id)
         os.makedirs(order_folder, exist_ok=True)
-        logger.info(f"📁 Создана папка заказа: {order_folder}")
-        
-        saved_files = []
         
         for i, f in enumerate(files_info, 1):
             if os.path.exists(f['path']):
-                # Очищаем имя файла от недопустимых символов
                 safe_name = re.sub(r'[<>:"/\\|?*]', '', f['name'])
                 new_path = os.path.join(order_folder, f"{i}_{safe_name}")
                 shutil.copy2(f['path'], new_path)
-                saved_files.append(new_path)
-                logger.info(f"📄 Файл {i} скопирован: {new_path}")
-            else:
-                logger.error(f"❌ Файл не найден: {f['path']}")
         
-        # Подсчитываем отдельно фото и документы
         photo_files = [ff for ff in files_info if ff['type'] == 'photo']
         doc_files = [ff for ff in files_info if ff['type'] == 'doc']
         
         total_photos = sum(ff['items'] for ff in photo_files)
         total_pages = sum(ff['items'] for ff in doc_files)
         
-        # Сохраняем информацию о заказе
         info_file = os.path.join(order_folder, "информация_о_заказе.txt")
         with open(info_file, 'w', encoding='utf-8') as f:
             f.write(f"ЗАКАЗ ОТ {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
@@ -353,9 +428,6 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             
             f.write(f"\nВсего файлов: {len(files_info)}")
         
-        logger.info(f"📝 Информация о заказе сохранена в {info_file}")
-        
-        # Сохраняем в историю
         history_entry = {
             "order_id": order_id,
             "folder": order_folder,
@@ -380,100 +452,243 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         return False, None, None
 
 def send_admin_notification(order_data, order_id, order_folder):
-    """Отправляет уведомление админу о новом заказе"""
     try:
         order_url = f"{RENDER_URL}/orders/{order_id}/"
         
-        # Подсчитываем отдельно фото и документы
         photo_files = [f for f in order_data['files'] if f['type'] == 'photo']
         doc_files = [f for f in order_data['files'] if f['type'] == 'doc']
         
         total_photos = sum(f['items'] for f in photo_files)
         total_pages = sum(f['items'] for f in doc_files)
         
-        # Формируем сообщение для админа
-        admin_message = f"🆕 НОВЫЙ ЗАКАЗ!\n\n"
-        admin_message += f"👤 Клиент: {order_data['user_info']['first_name']} (@{order_data['user_info']['username']})\n"
-        admin_message += f"🆔 ID: {order_data['user_info']['user_id']}\n\n"
+        admin_message = (
+            f"{live_emoji.animate('party')} *НОВЫЙ ЗАКАЗ!* {live_emoji.animate('fire')}\n\n"
+            f"👤 Клиент: {order_data['user_info']['first_name']}\n"
+            f"🆔 Username: @{order_data['user_info']['username']}\n"
+            f"📱 ID: `{order_data['user_info']['user_id']}`\n\n"
+        )
         
         if order_data['type'] == 'photo':
             format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
-            admin_message += f"📸 Тип: Фото\n"
-            admin_message += f"📸 Формат: {format_names[order_data['format']]}\n"
+            admin_message += (
+                f"{live_emoji.get('photo')} Тип: Фотопечать\n"
+                f"📏 Формат: {format_names[order_data['format']]}\n"
+            )
         else:
-            color_names = {"bw": "Черно-белая", "color": "Цветная"}
-            admin_message += f"📄 Тип: Документы\n"
-            admin_message += f"📄 Печать: {color_names[order_data['color']]}\n"
+            color_names = {"bw": "⚫ Черно-белая", "color": "🎨 Цветная"}
+            admin_message += (
+                f"{live_emoji.get('document')} Тип: Документы\n"
+                f"🎨 Печать: {color_names[order_data['color']]}\n"
+            )
         
-        admin_message += f"📦 Копий: {order_data['quantity']}\n"
-        admin_message += f"📦 Файлов: {len(order_data['files'])}\n"
+        admin_message += (
+            f"📦 Копий: {order_data['quantity']}\n"
+            f"📎 Файлов: {len(order_data['files'])}\n\n"
+        )
         
         if photo_files:
             admin_message += f"📸 Фото: {len(photo_files)} файлов, {total_photos} фото\n"
         if doc_files:
             admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц\n"
         
-        admin_message += f"💰 Сумма: {order_data['total']} руб.\n"
-        admin_message += f"⏳ Срок: {order_data['delivery']}\n\n"
-        admin_message += f"🔗 Ссылка на заказ:\n{order_url}"
+        admin_message += (
+            f"\n{live_emoji.animate('money')} Сумма: {order_data['total']} руб.\n"
+            f"{live_emoji.animate('time')} Срок: {order_data['delivery']}\n\n"
+            f"🔗 Ссылка: {order_url}"
+        )
         
-        # Отправляем админу
         if bot:
             bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
-                text=admin_message
+                text=admin_message,
+                parse_mode=ParseMode.MARKDOWN
             )
-            logger.info(f"✅ Уведомление отправлено админу {ADMIN_CHAT_ID}")
             
     except Exception as e:
         logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
 
+# ========== ФУНКЦИИ ДЛЯ ФОРМАТИРОВАНИЯ ==========
+def format_welcome_message(user_first_name):
+    """Форматирует приветственное сообщение"""
+    return (
+        f"{live_emoji.animate('welcome')} *ДОБРО ПОЖАЛОВАТЬ, {user_first_name.upper()}!* {live_emoji.animate('hearts')}\n\n"
+        f"{live_emoji.animate('sparkles')} *Я помогу распечатать:*\n"
+        f"  {live_emoji.get('photo')} Фотографии – любые размеры\n"
+        f"  {live_emoji.get('document')} Документы – PDF, Word\n\n"
+        f"{live_emoji.sequence('stars', 2)} *Как это работает:*\n"
+        f"  1️⃣ Отправляй файлы (можно несколько)\n"
+        f"  2️⃣ Выбери параметры печати\n"
+        f"  3️⃣ Получи расчёт стоимости\n"
+        f"  4️⃣ Подтверди заказ\n\n"
+        f"{live_emoji.get('phone')} *Контакты:* `{CONTACT_PHONE}`\n"
+        f"{live_emoji.get('delivery')} *Доставка:* {DELIVERY_OPTIONS}\n\n"
+        f"{live_emoji.animate('stars')} *Отправляй файлы и начинаем!* {live_emoji.animate('fire')}"
+    )
+
+def format_file_added_message(stats):
+    """Форматирует сообщение о добавлении файла"""
+    photo_count = stats.get('photo_count', 0)
+    doc_count = stats.get('doc_count', 0)
+    total_photos = stats.get('total_photos', 0)
+    total_pages = stats.get('total_pages', 0)
+    files_count = stats.get('files_count', 0)
+    
+    text = f"{live_emoji.animate('success')} *ФАЙЛ УСПЕШНО ДОБАВЛЕН!* {live_emoji.animate('party')}\n\n"
+    text += f"📊 *ТЕКУЩАЯ СТАТИСТИКА:*\n"
+    
+    if photo_count > 0:
+        text += f"  {live_emoji.get('photo')} *Фото:* {photo_count} файлов\n"
+    if doc_count > 0:
+        text += f"  {live_emoji.get('document')} *Документы:* {doc_count} файлов\n"
+    text += f"  {live_emoji.get('file')} *Всего файлов:* {files_count}\n"
+    
+    if total_photos > 0:
+        bar = create_progress_bar(total_photos, total_photos + total_pages)
+        text += f"\n  {live_emoji.get('photo')} *Фото в оригинале:* {total_photos} {bar}\n"
+    if total_pages > 0:
+        bar = create_progress_bar(total_pages, total_photos + total_pages)
+        text += f"  {live_emoji.get('document')} *Страниц:* {total_pages} {bar}\n"
+    text += "\n"
+    
+    return text
+
+def format_photo_format_choice():
+    """Форматирует сообщение выбора формата фото"""
+    return (
+        f"{live_emoji.animate('photo')} *ВЫБЕРИТЕ ФОРМАТ ПЕЧАТИ* {live_emoji.animate('photo')}\n\n"
+        f"📏 *Доступные форматы:*\n"
+        f"  🖼 *Малый* – A6 / 10x15 см\n"
+        f"  🖼 *Средний* – 13x18 / 15x21 см\n"
+        f"  🖼 *Большой* – A4 / 21x30 см\n\n"
+        f"{live_emoji.get('info')} *Цены зависят от количества*\n"
+        f"Чем больше копий, тем дешевле! {live_emoji.get('money')}"
+    )
+
+def format_doc_type_choice():
+    """Форматирует сообщение выбора типа печати документов"""
+    return (
+        f"{live_emoji.animate('document')} *ВЫБЕРИТЕ ТИП ПЕЧАТИ* {live_emoji.animate('document')}\n\n"
+        f"🎨 *Варианты печати:*\n"
+        f"  ⚫ *Черно-белая* – для текстов\n"
+        f"  🎨 *Цветная* – для графики\n\n"
+        f"{live_emoji.animate('money')} *Цены:*\n"
+        f"  ⚫ от 10 руб./стр.\n"
+        f"  🎨 от 20 руб./стр.\n"
+        f"  (зависит от объёма) {live_emoji.get('zap')}"
+    )
+
+def format_quantity_choice(total_photos, total_pages, total_items):
+    """Форматирует сообщение выбора количества копий"""
+    text = f"{live_emoji.animate('copy')} *ВЫБЕРИТЕ КОЛИЧЕСТВО КОПИЙ* {live_emoji.animate('copy')}\n\n"
+    text += f"📊 *В ваших файлах:*\n"
+    
+    if total_photos > 0:
+        text += f"  {live_emoji.get('photo')} Фото: {total_photos}\n"
+    if total_pages > 0:
+        text += f"  {live_emoji.get('document')} Страниц: {total_pages}\n"
+    text += f"  {live_emoji.get('file')} Всего единиц: {total_items}\n\n"
+    text += f"{live_emoji.get('question')} *Сколько копий напечатать?*\n"
+    text += f"👉 *Просто введите число* от 1 до 1000\n"
+    text += f"или выберите из кнопок ниже:"
+    
+    return text
+
+def format_order_summary(session, details):
+    """Форматирует сводку заказа для подтверждения"""
+    total_photos_result = session.get('total_photos', 0)
+    total_pages_result = session.get('total_pages', 0)
+    total = session.get('total', 0)
+    delivery = session.get('delivery', '')
+    files = session.get('files', [])
+    
+    text = f"{live_emoji.animate('order')} *ПРОВЕРЬТЕ ЗАКАЗ* {live_emoji.animate('order')}\n\n"
+    text += f"{details}\n"
+    text += f"📦 *ИТОГОВАЯ ИНФОРМАЦИЯ:*\n"
+    text += f"  {live_emoji.get('file')} Всего файлов: {len(files)}\n"
+    
+    if total_photos_result > 0:
+        text += f"  {live_emoji.get('photo')} Фото к печати: {total_photos_result}\n"
+    if total_pages_result > 0:
+        text += f"  {live_emoji.get('document')} Страниц к печати: {total_pages_result}\n"
+    text += f"\n"
+    text += f"  {live_emoji.animate('money')} *ИТОГОВАЯ СУММА:* {total} руб.\n"
+    text += f"  {live_emoji.animate('time')} *Срок выполнения:* {delivery}\n\n"
+    text += f"{live_emoji.get('question')} *Всё верно?*"
+    
+    return text
+
+def format_order_confirmation(order_id, session):
+    """Форматирует сообщение о подтверждении заказа"""
+    total_photos = session.get('total_photos', 0)
+    total_pages = session.get('total_pages', 0)
+    total = session.get('total', 0)
+    delivery = session.get('delivery', '')
+    quantity = session.get('quantity', 1)
+    
+    photo_files = [f for f in session['files'] if f['type'] == 'photo']
+    doc_files = [f for f in session['files'] if f['type'] == 'doc']
+    original_photos = sum(f['items'] for f in photo_files)
+    original_pages = sum(f['items'] for f in doc_files)
+    
+    text = (
+        f"{live_emoji.animate('party')} *ЗАКАЗ УСПЕШНО ОФОРМЛЕН!* {live_emoji.animate('tada')}\n\n"
+        f"🎯 *ДЕТАЛИ ЗАКАЗА:*\n"
+        f"  🆔 *Номер:* `{order_id}`\n"
+        f"  👤 *Клиент:* {session['user_info']['first_name']}\n"
+    )
+    
+    if original_photos > 0:
+        text += f"\n  {live_emoji.get('photo')} *Фото в оригинале:* {original_photos}\n"
+        text += f"  {live_emoji.get('photo')} *Фото к печати:* {original_photos * quantity}\n"
+    if original_pages > 0:
+        text += f"\n  {live_emoji.get('document')} *Страниц в оригинале:* {original_pages}\n"
+        text += f"  {live_emoji.get('document')} *Страниц к печати:* {original_pages * quantity}\n"
+    text += f"\n"
+    text += f"  {live_emoji.animate('money')} *Сумма к оплате:* {total} руб.\n"
+    text += f"  {live_emoji.animate('time')} *Срок выполнения:* {delivery}\n\n"
+    text += f"{live_emoji.get('phone')} *КОНТАКТНАЯ ИНФОРМАЦИЯ:*\n"
+    text += f"  📞 *Телефон:* `{CONTACT_PHONE}`\n"
+    text += f"  {live_emoji.get('delivery')} *Способы получения:* {DELIVERY_OPTIONS}\n\n"
+    text += f"📌 *СТАТУС ЗАКАЗА:* {get_status_display('new')}\n"
+    text += f"Вы будете получать уведомления при изменении статуса!\n\n"
+    text += f"{live_emoji.animate('hearts')} *СПАСИБО ЗА ЗАКАЗ!* {live_emoji.animate('hearts')}"
+    
+    return text
+
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
 def start(update, context):
-    """Команда /start"""
     user = update.effective_user
     user_id = user.id
     logger.info(f"✅ /start от {user_id}")
     
-    # Очищаем старую сессию
     if user_id in user_sessions:
         if "temp_dirs" in user_sessions[user_id]:
             for d in user_sessions[user_id]["temp_dirs"]:
                 shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
     
-    welcome = (
-        f"👋 Привет, {user.first_name}!\n\n"
-        "📸🖨️ Я помогу распечатать фото и документы.\n\n"
-        "📎 Отправляй файлы (JPG, PNG, PDF, DOC, DOCX)\n"
-        "📦 Можно отправлять несколько файлов за раз\n"
-        "📊 Я посчитаю количество и рассчитаю стоимость\n\n"
-        f"📞 Контакт: {CONTACT_PHONE}\n"
-        f"🚚 Доставка: {DELIVERY_OPTIONS}"
-    )
+    welcome = format_welcome_message(user.first_name)
     
-    update.message.reply_text(welcome)
+    update.message.reply_text(
+        welcome,
+        parse_mode=ParseMode.MARKDOWN
+    )
     return WAITING_FOR_FILE
 
 def handle_file(update, context):
-    """Обработка входящих файлов"""
     user_id = update.effective_user.id
     message = update.message
     
-    # Проверяем, является ли это медиа-группой (несколько файлов)
     if message.media_group_id:
         return handle_media_group(update, context)
     
-    # Обработка одиночного файла
     return process_single_file(update, context)
 
 def handle_media_group(update, context):
-    """Обработка группы файлов (несколько в одном сообщении)"""
     user_id = update.effective_user.id
     message = update.message
     media_group_id = message.media_group_id
     
-    # Сохраняем сообщение в группу
     if user_id not in media_groups:
         media_groups[user_id] = {}
     
@@ -482,12 +697,10 @@ def handle_media_group(update, context):
     
     media_groups[user_id][media_group_id].append(message)
     
-    # Отменяем предыдущий таймер если есть
     timer_key = f"{user_id}_{media_group_id}"
     if timer_key in group_timers:
         group_timers[timer_key].cancel()
     
-    # Создаем новый таймер на 2 секунды
     timer = threading.Timer(2.0, process_media_group, args=[user_id, media_group_id, context])
     timer.daemon = True
     timer.start()
@@ -496,7 +709,6 @@ def handle_media_group(update, context):
     return WAITING_FOR_FILE
 
 def process_media_group(user_id, media_group_id, context):
-    """Обрабатывает группу файлов после сбора всех сообщений"""
     try:
         if user_id not in media_groups or media_group_id not in media_groups[user_id]:
             return
@@ -505,12 +717,10 @@ def process_media_group(user_id, media_group_id, context):
         if not messages:
             return
         
-        # Очищаем таймер
         timer_key = f"{user_id}_{media_group_id}"
         if timer_key in group_timers:
             del group_timers[timer_key]
         
-        # Создаем сессию если нужно
         if user_id not in user_sessions:
             user_sessions[user_id] = {
                 "files": [],
@@ -525,13 +735,11 @@ def process_media_group(user_id, media_group_id, context):
                 }
             }
         else:
-            # Обновляем счетчики, если сессия уже есть
             if "total_photos" not in user_sessions[user_id]:
                 user_sessions[user_id]["total_photos"] = 0
             if "total_pages" not in user_sessions[user_id]:
                 user_sessions[user_id]["total_pages"] = 0
         
-        # Обрабатываем все файлы из группы
         doc_count = 0
         photo_count = 0
         
@@ -560,15 +768,12 @@ def process_media_group(user_id, media_group_id, context):
             else:
                 continue
             
-            # Скачиваем файл
             file_path, temp_dir = download_file(file_obj, file_name)
             if not file_path:
                 continue
             
-            # Считаем количество
             items, unit, type_name = count_items_in_file(file_path, file_name)
             
-            # Сохраняем в сессию
             file_info = {
                 "path": file_path,
                 "name": file_name,
@@ -588,7 +793,8 @@ def process_media_group(user_id, media_group_id, context):
         if not user_sessions[user_id]["files"]:
             context.bot.send_message(
                 chat_id=user_id,
-                text="❌ Не удалось загрузить файлы"
+                text=f"{live_emoji.get('error')} *Ошибка загрузки файлов*",
+                parse_mode=ParseMode.MARKDOWN
             )
             return
         
@@ -596,40 +802,38 @@ def process_media_group(user_id, media_group_id, context):
         total_photos = user_sessions[user_id]["total_photos"]
         total_pages = user_sessions[user_id]["total_pages"]
         
-        text = f"✅ Загружено {files_count} файлов!\n\n📊 Статистика:\n"
-        if photo_count > 0:
-            text += f"📸 Фото: {photo_count}\n"
-        if doc_count > 0:
-            text += f"📄 Документы: {doc_count}\n"
+        stats = {
+            'photo_count': photo_count,
+            'doc_count': doc_count,
+            'files_count': files_count,
+            'total_photos': total_photos,
+            'total_pages': total_pages
+        }
         
-        if total_photos > 0:
-            text += f"📸 Всего фото: {total_photos}\n"
-        if total_pages > 0:
-            text += f"📄 Всего страниц: {total_pages}\n"
-        text += "\n"
+        text = format_file_added_message(stats)
         
-        # Предлагаем выбор (если есть документы, приоритет у них)
         if doc_count > 0:
-            text += "Выберите тип печати для документов:"
+            text += format_doc_type_choice()
             keyboard = [
-                [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
-                [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
-                [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+                [InlineKeyboardButton("⚫ Черно-белая печать", callback_data="doc_bw")],
+                [InlineKeyboardButton("🎨 Цветная печать", callback_data="doc_color")],
+                [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
                 [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
             ]
         else:
-            text += "Выберите формат печати для фото:"
+            text += format_photo_format_choice()
             keyboard = [
                 [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
                 [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
                 [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
-                [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+                [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
                 [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
             ]
         
         context.bot.send_message(
             chat_id=user_id,
             text=text,
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
@@ -638,11 +842,9 @@ def process_media_group(user_id, media_group_id, context):
         logger.error(traceback.format_exc())
 
 def process_single_file(update, context):
-    """Обработка одиночного файла"""
     user_id = update.effective_user.id
     message = update.message
     
-    # Создаем сессию если нужно
     if user_id not in user_sessions:
         user_sessions[user_id] = {
             "files": [],
@@ -657,13 +859,11 @@ def process_single_file(update, context):
             }
         }
     else:
-        # Обновляем счетчики, если сессия уже есть
         if "total_photos" not in user_sessions[user_id]:
             user_sessions[user_id]["total_photos"] = 0
         if "total_pages" not in user_sessions[user_id]:
             user_sessions[user_id]["total_pages"] = 0
     
-    # Определяем тип файла
     file_obj = None
     file_name = None
     file_type = None
@@ -677,7 +877,11 @@ def process_single_file(update, context):
         elif ext in ['pdf', 'doc', 'docx']:
             file_type = "doc"
         else:
-            message.reply_text("❌ Неподдерживаемый формат")
+            message.reply_text(
+                f"{live_emoji.get('error')} *Неподдерживаемый формат*\n\n"
+                f"Отправьте: JPG, PNG, PDF, DOC, DOCX",
+                parse_mode=ParseMode.MARKDOWN
+            )
             return WAITING_FOR_FILE
     elif message.photo:
         file_obj = message.photo[-1]
@@ -686,16 +890,16 @@ def process_single_file(update, context):
     else:
         return WAITING_FOR_FILE
     
-    # Скачиваем файл
     file_path, temp_dir = download_file(file_obj, file_name)
     if not file_path:
-        message.reply_text("❌ Ошибка загрузки")
+        message.reply_text(
+            f"{live_emoji.get('error')} *Ошибка загрузки*",
+            parse_mode=ParseMode.MARKDOWN
+        )
         return WAITING_FOR_FILE
     
-    # Считаем количество
     items, unit, type_name = count_items_in_file(file_path, file_name)
     
-    # Сохраняем в сессию
     file_info = {
         "path": file_path,
         "name": file_name,
@@ -712,49 +916,48 @@ def process_single_file(update, context):
     else:
         user_sessions[user_id]["total_pages"] += items
     
-    # Статистика
     files_count = len(user_sessions[user_id]["files"])
     photo_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'photo')
     doc_count = sum(1 for f in user_sessions[user_id]["files"] if f['type'] == 'doc')
     total_photos = user_sessions[user_id]["total_photos"]
     total_pages = user_sessions[user_id]["total_pages"]
     
-    text = f"✅ Файл добавлен!\n\n📊 Статистика:\n"
-    if photo_count > 0:
-        text += f"📸 Фото: {photo_count}\n"
-    if doc_count > 0:
-        text += f"📄 Документы: {doc_count}\n"
+    stats = {
+        'photo_count': photo_count,
+        'doc_count': doc_count,
+        'files_count': files_count,
+        'total_photos': total_photos,
+        'total_pages': total_pages
+    }
     
-    if total_photos > 0:
-        text += f"📸 Всего фото: {total_photos}\n"
-    if total_pages > 0:
-        text += f"📄 Всего страниц: {total_pages}\n"
-    text += "\n"
+    text = format_file_added_message(stats)
     
-    # Предлагаем выбор
     if doc_count > 0:
-        text += "Выберите тип печати для документов:"
+        text += format_doc_type_choice()
         keyboard = [
-            [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
-            [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
-            [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+            [InlineKeyboardButton("⚫ Черно-белая печать", callback_data="doc_bw")],
+            [InlineKeyboardButton("🎨 Цветная печать", callback_data="doc_color")],
+            [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
             [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
         ]
     else:
-        text += "Выберите формат печати для фото:"
+        text += format_photo_format_choice()
         keyboard = [
             [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
             [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
             [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
-            [InlineKeyboardButton("➕ Добавить ещё файлы", callback_data="add_more")],
+            [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
             [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
         ]
     
-    message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    message.reply_text(
+        text,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
     return WAITING_FOR_FILE
 
 def cancel_order(user_id, query=None, context=None):
-    """Общая функция для отмены заказа"""
     if user_id in user_sessions:
         if "temp_dirs" in user_sessions[user_id]:
             for d in user_sessions[user_id]["temp_dirs"]:
@@ -765,35 +968,42 @@ def cancel_order(user_id, query=None, context=None):
         del user_sessions[user_id]
         logger.info(f"✅ Сессия пользователя {user_id} очищена")
     
-    # Создаем клавиатуру для нового заказа
     keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    # Отправляем или редактируем сообщение
+    text = (
+        f"{live_emoji.animate('error')} *ЗАКАЗ ОТМЕНЁН*\n\n"
+        f"Все загруженные файлы удалены.\n\n"
+        f"{live_emoji.get('question')} Хотите оформить новый заказ?"
+    )
+    
     if query:
         try:
             query.edit_message_text(
-                "❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
+                text,
+                parse_mode=ParseMode.MARKDOWN,
                 reply_markup=reply_markup
             )
-        except:
+        except Exception as e:
+            logger.error(f"Ошибка редактирования: {e}")
             if context:
                 context.bot.send_message(
                     chat_id=user_id,
-                    text="❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
+                    text=text,
+                    parse_mode=ParseMode.MARKDOWN,
                     reply_markup=reply_markup
                 )
     elif context:
         context.bot.send_message(
             chat_id=user_id,
-            text="❌ Заказ отменён. Все загруженные файлы удалены.\n\nХотите оформить новый заказ?",
+            text=text,
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
     
     return WAITING_FOR_FILE
 
 def button_handler(update, context):
-    """Обработка нажатий кнопок"""
     query = update.callback_query
     query.answer()
     user_id = query.from_user.id
@@ -801,16 +1011,18 @@ def button_handler(update, context):
     
     logger.info(f"🔘 Callback: {data} от {user_id}")
     
-    # Отмена заказа - обрабатываем ВСЕГДА в первую очередь
     if data == "cancel":
         return cancel_order(user_id, query, context)
     
     if data == "add_more":
-        query.edit_message_text("📤 Отправьте следующие файлы")
+        query.edit_message_text(
+            f"{live_emoji.get('file')} *Отправьте следующие файлы*\n\n"
+            f"Можно отправлять несколько файлов за раз!",
+            parse_mode=ParseMode.MARKDOWN
+        )
         return WAITING_FOR_FILE
     
     if data == "new_order":
-        # Очищаем сессию и начинаем новый заказ
         if user_id in user_sessions:
             if "temp_dirs" in user_sessions[user_id]:
                 for d in user_sessions[user_id]["temp_dirs"]:
@@ -821,9 +1033,11 @@ def button_handler(update, context):
             del user_sessions[user_id]
         
         query.edit_message_text(
-            "🔄 **НОВЫЙ ЗАКАЗ**\n\n"
-            "Отправьте файлы для печати (JPG, PNG, PDF, DOC, DOCX):",
-            parse_mode="Markdown"
+            f"{live_emoji.animate('welcome')} *НОВЫЙ ЗАКАЗ* {live_emoji.animate('welcome')}\n\n"
+            f"Отправьте файлы для печати:\n"
+            f"📸 JPG, PNG – фотографии\n"
+            f"📄 PDF, DOC, DOCX – документы",
+            parse_mode=ParseMode.MARKDOWN
         )
         return WAITING_FOR_FILE
     
@@ -833,9 +1047,16 @@ def button_handler(update, context):
         
         user_sessions[user_id]["type"] = "photo"
         user_sessions[user_id]["format"] = data.split("_")[1]
+        
+        total_photos = user_sessions[user_id]["total_photos"]
+        total_pages = user_sessions[user_id]["total_pages"]
+        total_items = total_photos + total_pages
+        
+        text = format_quantity_choice(total_photos, total_pages, total_items)
+        
         query.edit_message_text(
-            "🔢 Сколько копий каждого фото напечатать?\n"
-            "Введите число или выберите из вариантов:",
+            text,
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -849,12 +1070,12 @@ def button_handler(update, context):
         total_photos = user_sessions[user_id]["total_photos"]
         total_pages = user_sessions[user_id]["total_pages"]
         total_items = total_photos + total_pages
+        
+        text = format_quantity_choice(total_photos, total_pages, total_items)
+        
         query.edit_message_text(
-            f"🔢 В файлах всего {total_items} единиц.\n"
-            f"📸 Фото: {total_photos}\n"
-            f"📄 Страниц: {total_pages}\n\n"
-            f"Сколько копий каждого документа напечатать?\n"
-            f"Введите число или выберите из вариантов:",
+            text,
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -873,7 +1094,7 @@ def button_handler(update, context):
         total = 0
         total_photos_result = 0
         total_pages_result = 0
-        details = "📊 ДЕТАЛЬНЫЙ РАСЧЁТ:\n\n"
+        details = f"{live_emoji.animate('stars')} *ДЕТАЛЬНЫЙ РАСЧЁТ:* {live_emoji.animate('stars')}\n\n"
         
         for i, f in enumerate(files, 1):
             if f['type'] == 'photo':
@@ -886,45 +1107,48 @@ def button_handler(update, context):
                 price_dict = PHOTO_PRICES[session["format"]]
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
-                details += f"📸 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} фото × {quantity} копий = {f['items'] * quantity} фото\n"
-                details += f"   • {file_total // quantity} руб./копия\n"
-                details += f"   • Итого: {file_total} руб.\n\n"
+                details += (
+                    f"{live_emoji.get('photo')} *Файл {i}:*\n"
+                    f"  📄 `{f['name'][:30]}`...\n"
+                    f"  📸 {f['items']} фото × {quantity} = {f['items'] * quantity} фото\n"
+                    f"  💰 {file_total // quantity} руб./копия\n"
+                    f"  💰 *Итого:* {file_total} руб.\n\n"
+                )
             else:
                 price_dict = DOC_PRICES[session["color"]]
                 file_items = f['items'] * quantity
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
-                details += f"📄 Файл {i}: {f['name'][:30]}...\n"
-                details += f"   • {f['items']} стр. × {quantity} копий = {file_items} стр.\n"
-                details += f"   • {file_total // file_items} руб./стр.\n"
-                details += f"   • Итого: {file_total} руб.\n\n"
+                details += (
+                    f"{live_emoji.get('document')} *Файл {i}:*\n"
+                    f"  📄 `{f['name'][:30]}`...\n"
+                    f"  📄 {f['items']} стр. × {quantity} = {file_items} стр.\n"
+                    f"  💰 {file_total // file_items} руб./стр.\n"
+                    f"  💰 *Итого:* {file_total} руб.\n\n"
+                )
         
         session["total"] = total
         session["total_photos"] = total_photos_result
         session["total_pages"] = total_pages_result
         session["delivery"] = estimate_delivery_time(total_photos_result + total_pages_result)
         
-        text = f"{details}\n"
-        text += "📋 ПРОВЕРЬТЕ ЗАКАЗ:\n\n"
-        text += f"📦 Всего файлов: {len(files)}\n"
-        if total_photos_result > 0:
-            text += f"📸 Всего фото к печати: {total_photos_result}\n"
-        if total_pages_result > 0:
-            text += f"📄 Всего страниц к печати: {total_pages_result}\n"
-        text += f"💰 ИТОГОВАЯ СУММА: {total} руб.\n"
-        text += f"⏳ Срок выполнения: {session['delivery']}\n\n"
-        text += "Всё верно?"
+        text = format_order_summary(session, details)
         
         keyboard = [
             [InlineKeyboardButton("✅ Да, подтвердить заказ", callback_data="confirm"),
              InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]
         ]
         
-        query.message.delete()
+        # Удаляем предыдущее сообщение
+        try:
+            query.message.delete()
+        except:
+            pass
+        
         context.bot.send_message(
             chat_id=user_id,
             text=text,
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return CONFIRMING_ORDER
@@ -942,59 +1166,25 @@ def button_handler(update, context):
         )
         
         if success:
-            # Отправляем уведомление админу
             send_admin_notification(session, order_id, folder)
             
-            # Подсчитываем для сообщения пользователю
-            photo_files = [f for f in session['files'] if f['type'] == 'photo']
-            doc_files = [f for f in session['files'] if f['type'] == 'doc']
-            
-            total_photos = sum(f['items'] for f in photo_files)
-            total_pages = sum(f['items'] for f in doc_files)
-            
-            # Уведомление клиенту
-            client_message = (
-                "✅ **ЗАКАЗ УСПЕШНО ОФОРМЛЕН!**\n\n"
-                f"🆔 Номер заказа: `{order_id}`\n"
-                f"👤 Заказчик: {session['user_info']['first_name']}\n"
-                f"📦 Файлов: {len(session['files'])}\n"
-            )
-            
-            if total_photos > 0:
-                client_message += f"📸 Фото в оригинале: {total_photos}\n"
-                client_message += f"📸 Фото к печати: {total_photos * session['quantity']}\n"
-            if total_pages > 0:
-                client_message += f"📄 Страниц в оригинале: {total_pages}\n"
-                client_message += f"📄 Страниц к печати: {total_pages * session['quantity']}\n"
-            
-            client_message += (
-                f"💰 Сумма к оплате: {session['total']} руб.\n"
-                f"⏳ Срок выполнения: {session['delivery']}\n\n"
-                f"📞 Контактный телефон: {CONTACT_PHONE}\n"
-                f"🚚 Способы получения: {DELIVERY_OPTIONS}\n\n"
-                f"📌 **Статус вашего заказа:** {get_status_display('new')}\n"
-                "Вы будете получать уведомления при изменении статуса.\n\n"
-                "Спасибо за заказ! 😊"
-            )
+            client_message = format_order_confirmation(order_id, session)
             
             context.bot.send_message(
                 chat_id=user_id,
                 text=client_message,
-                parse_mode="Markdown"
+                parse_mode=ParseMode.MARKDOWN
             )
             
-            # Если есть фото, отправляем предпросмотр
+            photo_files = [f for f in session['files'] if f['type'] == 'photo']
             if photo_files:
                 try:
-                    # Отправляем первые 5 фото
                     media_group = []
                     for i, photo_file in enumerate(photo_files[:5]):
                         with open(photo_file['path'], 'rb') as photo:
                             if i == 0:
-                                media_group.append(InputMediaPhoto(
-                                    photo.read(),
-                                    caption=f"📸 Загруженные фото ({len(photo_files)} шт.)"
-                                ))
+                                caption = f"📸 Загруженные фото ({len(photo_files)} шт.)"
+                                media_group.append(InputMediaPhoto(photo.read(), caption=caption))
                             else:
                                 media_group.append(InputMediaPhoto(photo.read()))
                     
@@ -1009,7 +1199,8 @@ def button_handler(update, context):
         else:
             context.bot.send_message(
                 chat_id=user_id,
-                text="❌ Ошибка при сохранении заказа"
+                text=f"{live_emoji.get('error')} *Ошибка при сохранении заказа*",
+                parse_mode=ParseMode.MARKDOWN
             )
         
         # Очищаем временные файлы
@@ -1017,12 +1208,16 @@ def button_handler(update, context):
             shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
         
-        # Кнопка для нового заказа
         keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
-        query.message.delete()
+        try:
+            query.message.delete()
+        except:
+            pass
+        
         context.bot.send_message(
             chat_id=user_id,
-            text="Хотите оформить ещё один заказ?",
+            text=f"{live_emoji.get('question')} Хотите оформить ещё один заказ?",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return WAITING_FOR_FILE
@@ -1032,46 +1227,105 @@ def button_handler(update, context):
 def get_quantity_keyboard():
     """Клавиатура выбора количества"""
     keyboard = [
-        [InlineKeyboardButton("1", callback_data="qty_1"), 
-         InlineKeyboardButton("2", callback_data="qty_2"),
-         InlineKeyboardButton("3", callback_data="qty_3"), 
-         InlineKeyboardButton("4", callback_data="qty_4"),
-         InlineKeyboardButton("5", callback_data="qty_5")],
-        [InlineKeyboardButton("10", callback_data="qty_10"), 
-         InlineKeyboardButton("20", callback_data="qty_20"),
-         InlineKeyboardButton("30", callback_data="qty_30"), 
-         InlineKeyboardButton("50", callback_data="qty_50"),
-         InlineKeyboardButton("100", callback_data="qty_100")],
-        [InlineKeyboardButton("200", callback_data="qty_200"), 
-         InlineKeyboardButton("300", callback_data="qty_300"),
-         InlineKeyboardButton("400", callback_data="qty_400"), 
-         InlineKeyboardButton("500", callback_data="qty_500")],
-        [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
+        [
+            InlineKeyboardButton("1", callback_data="qty_1"), 
+            InlineKeyboardButton("2", callback_data="qty_2"),
+            InlineKeyboardButton("3", callback_data="qty_3"), 
+            InlineKeyboardButton("4", callback_data="qty_4"),
+            InlineKeyboardButton("5", callback_data="qty_5")
+        ],
+        [
+            InlineKeyboardButton("10", callback_data="qty_10"), 
+            InlineKeyboardButton("20", callback_data="qty_20"),
+            InlineKeyboardButton("30", callback_data="qty_30"), 
+            InlineKeyboardButton("50", callback_data="qty_50"),
+            InlineKeyboardButton("100", callback_data="qty_100")
+        ],
+        [
+            InlineKeyboardButton("200", callback_data="qty_200"), 
+            InlineKeyboardButton("300", callback_data="qty_300"),
+            InlineKeyboardButton("400", callback_data="qty_400"), 
+            InlineKeyboardButton("500", callback_data="qty_500")
+        ],
+        [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def handle_quantity_input(update, context):
-    """Ручной ввод количества"""
+    """Обработка ручного ввода количества"""
     user_id = update.effective_user.id
-    text = update.message.text
-    quantity = extract_number_from_text(text)
+    message = update.message
+    text = message.text.strip()
     
-    if not quantity or quantity < 1 or quantity > 1000:
-        update.message.reply_text(
-            "Пожалуйста, введите число от 1 до 1000\n"
-            "Или выберите из кнопок:",
+    # Проверяем, что пользователь в сессии
+    if user_id not in user_sessions:
+        message.reply_text(
+            f"{live_emoji.get('error')} *Ошибка*\n\nНачните заново с /start",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return WAITING_FOR_FILE
+    
+    # Проверяем, что выбрали тип печати
+    if user_sessions[user_id].get("type") not in ["photo", "doc"]:
+        message.reply_text(
+            f"{live_emoji.get('attention')} *Сначала выберите тип печати*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return WAITING_FOR_FILE
+    
+    # Извлекаем число из текста
+    numbers = re.findall(r'\d+', text)
+    
+    if not numbers:
+        message.reply_text(
+            f"{live_emoji.get('attention')} *Пожалуйста, введите число*\n\n"
+            f"Например: 1, 5, 10, 100",
+            parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
     
-    # Создаем callback как при нажатии кнопки
-    context.user_data['temp_quantity'] = quantity
-    query = type('Query', (), {
-        'data': f'qty_{quantity}',
-        'from_user': update.effective_user,
-        'message': update.message,
-        'answer': lambda: None
-    })
+    quantity = int(numbers[0])
+    
+    if quantity < 1:
+        message.reply_text(
+            f"{live_emoji.get('attention')} *Число должно быть больше 0*",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_quantity_keyboard()
+        )
+        return ENTERING_QUANTITY
+    
+    if quantity > 1000:
+        message.reply_text(
+            f"{live_emoji.get('attention')} *Максимальное количество - 1000*\n\n"
+            f"Введите число от 1 до 1000",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_quantity_keyboard()
+        )
+        return ENTERING_QUANTITY
+    
+    # Отправляем подтверждение
+    message.reply_text(
+        f"{live_emoji.get('success')} *Принято!* Количество: {quantity}",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # Создаем искусственный callback query
+    class FakeQuery:
+        def __init__(self, user_id, data):
+            self.data = data
+            self.from_user = type('User', (), {'id': user_id})()
+            self.message = type('Msg', (), {
+                'delete': lambda: None,
+                'chat': type('Chat', (), {'id': user_id})()
+            })()
+        
+        def answer(self):
+            pass
+    
+    fake_query = FakeQuery(user_id, f'qty_{quantity}')
+    
+    # Вызываем обработчик
     return button_handler(update, context)
 
 # ========== ВЕБ-ИНТЕРФЕЙС ==========
@@ -1079,21 +1333,18 @@ app = Flask(__name__)
 
 @app.route('/orders/')
 def list_orders():
-    """Список всех заказов"""
     try:
         orders = []
         if os.path.exists(ORDERS_PATH):
             for item in sorted(os.listdir(ORDERS_PATH), reverse=True):
                 item_path = os.path.join(ORDERS_PATH, item)
                 if os.path.isdir(item_path) and item != "orders_history.json":
-                    # Получаем информацию о заказе
                     info_file = os.path.join(item_path, "информация_о_заказе.txt")
                     info_text = ""
                     if os.path.exists(info_file):
                         with open(info_file, 'r', encoding='utf-8') as f:
                             info_text = f.read()
                     
-                    # Ищем статус в истории
                     status = "new"
                     history = load_orders_history()
                     for h in history:
@@ -1101,7 +1352,6 @@ def list_orders():
                             status = h.get('status', 'new')
                             break
                     
-                    # Список файлов
                     files = []
                     photos = []
                     total_size = 0
@@ -1127,7 +1377,6 @@ def list_orders():
                             if is_photo:
                                 photos.append(file_info)
                     
-                    # Получаем время создания
                     created = datetime.fromtimestamp(os.path.getctime(item_path))
                     age = datetime.now() - created
                     
@@ -1235,7 +1484,6 @@ def list_orders():
 
 @app.route('/orders/<path:order_id>/')
 def view_order(order_id):
-    """Просмотр конкретного заказа"""
     try:
         order_path = os.path.join(ORDERS_PATH, order_id)
         if not os.path.exists(order_path) or not os.path.isdir(order_path):
@@ -1500,7 +1748,21 @@ bot = telegram.Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
-# ВАЖНО: Добавляем обработчик cancel для состояния ENTERING_QUANTITY
+# Добавляем обработчик ошибок
+def error_handler(update, context):
+    logger.error(f"Ошибка: {context.error}")
+    try:
+        if update and update.effective_chat:
+            context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"{live_emoji.get('error')} *Произошла ошибка*\n\nПожалуйста, попробуйте еще раз или начните заново с /start",
+                parse_mode=ParseMode.MARKDOWN
+            )
+    except:
+        pass
+
+dispatcher.add_error_handler(error_handler)
+
 conv_handler = ConversationHandler(
     entry_points=[
         MessageHandler(Filters.document | Filters.photo, handle_file),
@@ -1513,28 +1775,36 @@ conv_handler = ConversationHandler(
         ],
         SELECTING_PHOTO_FORMAT: [
             CallbackQueryHandler(button_handler, pattern="^photo_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # Добавлено
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
         SELECTING_DOC_TYPE: [
             CallbackQueryHandler(button_handler, pattern="^doc_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # Добавлено
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
         ENTERING_QUANTITY: [
             MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
             CallbackQueryHandler(button_handler, pattern="^qty_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),  # ВАЖНО: добавляем обработку cancel
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
         CONFIRMING_ORDER: [
             CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
         ],
     },
     fallbacks=[CommandHandler("start", start)],
+    allow_reentry=True,
+    per_user=True,
+    per_chat=True,
 )
 
 dispatcher.add_handler(conv_handler)
 
+# Устанавливаем вебхук
 webhook_url = f"{RENDER_URL}/webhook"
-updater.bot.set_webhook(url=webhook_url)
+try:
+    updater.bot.set_webhook(url=webhook_url)
+    logger.info(f"✅ Веб-хук установлен: {webhook_url}")
+except Exception as e:
+    logger.error(f"❌ Ошибка установки веб-хука: {e}")
 
 print(f"✅ Веб-хук: {webhook_url}")
 print("✅ БОТ ГОТОВ К РАБОТЕ!")
@@ -1543,4 +1813,3 @@ print("=" * 60)
 if __name__ == "__main__":
     print("🌐 Запуск Flask сервера...")
     app.run(host='0.0.0.0', port=PORT)
-

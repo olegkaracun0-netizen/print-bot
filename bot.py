@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-✨ ЖИВЫЕ ЭМОДЗИ И ИСПРАВЛЕННЫЕ ОШИБКИ ✨
+✨ ПРОСТАЯ И КРАСИВАЯ ВЕРСИЯ ✨
 """
 
 import os
@@ -16,14 +16,12 @@ import shutil
 import traceback
 import zipfile
 import threading
-import random
-import time
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify, send_file, send_from_directory, render_template_string, abort
 
 # Используем синхронную версию python-telegram-bot
 import telegram
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, ParseMode
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
 
 import PyPDF2
@@ -72,116 +70,8 @@ ORDER_STATUSES = {
     "cancelled": "❌ Отменен"
 }
 
-# ========== ЖИВЫЕ ЭМОДЗИ ==========
-class LiveEmoji:
-    """Класс для создания эффекта живых эмодзи"""
-    
-    def __init__(self):
-        self.emoji_pools = {
-            "sparkles": ["✨", "🌟", "💫", "⭐", "✨"],
-            "hearts": ["❤️", "💖", "💝", "💗", "💓", "❤️"],
-            "stars": ["⭐", "🌟", "✨", "💫", "⭐"],
-            "success": ["✅", "🎉", "✨", "🌟", "✅"],
-            "error": ["❌", "😱", "💔", "⚠️", "❌"],
-            "money": ["💰", "💎", "💵", "💶", "💰"],
-            "time": ["⏰", "⌛", "⏳", "🕐", "⏰"],
-            "photo": ["📸", "📷", "🎥", "📱", "📸"],
-            "document": ["📄", "📑", "📊", "📋", "📄"],
-            "printer": ["🖨️", "⚡", "📄", "✨", "🖨️"],
-            "delivery": ["🚚", "📦", "🚀", "✈️", "🚚"],
-            "phone": ["📞", "📱", "☎️", "📲", "📞"],
-            "attention": ["⚠️", "❗", "❕", "⁉️", "⚠️"],
-            "question": ["🤔", "❓", "💭", "🤨", "🤔"],
-            "welcome": ["👋", "🤝", "✋", "🖐️", "👋"],
-            "party": ["🎉", "🎊", "🎈", "🎁", "🎉"],
-            "fire": ["🔥", "⚡", "💥", "✨", "🔥"],
-            "rainbow": ["🌈", "☀️", "⭐", "🌟", "🌈"],
-            "crown": ["👑", "🏆", "🥇", "💎", "👑"],
-        }
-        
-        self.single_emojis = {
-            "file": "📎",
-            "copy": "📋",
-            "order": "📝",
-            "info": "ℹ️",
-            "zap": "⚡",
-            "dizzy": "💫",
-            "tada": "🎉",
-            "gift": "🎁",
-            "medal": "🏆",
-        }
-        
-        # Для создания эффекта пульсации
-        self.pulse_counter = 0
-    
-    def get(self, key, pulsate=False):
-        """Получить живой эмодзи"""
-        if key in self.emoji_pools:
-            pool = self.emoji_pools[key]
-            if pulsate:
-                # Создаем эффект пульсации
-                self.pulse_counter += 1
-                index = (self.pulse_counter // 2) % len(pool)
-                return pool[index]
-            else:
-                return random.choice(pool)
-        elif key in self.single_emojis:
-            return self.single_emojis[key]
-        return key
-    
-    def sequence(self, key, count=3):
-        """Получить последовательность живых эмодзи"""
-        if key in self.emoji_pools:
-            return " ".join(random.choices(self.emoji_pools[key], k=count))
-        return key
-    
-    def animate(self, key, speed="normal"):
-        """Создает анимированную строку"""
-        if key not in self.emoji_pools:
-            return key
-        
-        pool = self.emoji_pools[key]
-        if speed == "fast":
-            steps = 4
-        elif speed == "slow":
-            steps = 2
-        else:
-            steps = 3
-        
-        # Создаем последовательность для анимации
-        anim = []
-        for i in range(steps):
-            anim.append(random.choice(pool))
-        
-        return " ".join(anim)
-
-# Создаем глобальный объект с живыми эмодзи
-live_emoji = LiveEmoji()
-
 def get_status_display(status):
-    """Возвращает отображение статуса"""
     return ORDER_STATUSES.get(status, status)
-
-def create_progress_bar(current, total, width=8):
-    """Создает анимированную полосу прогресса"""
-    if total == 0:
-        return "⬜" * width
-    
-    filled = int((current / total) * width)
-    empty = width - filled
-    
-    # Живые символы для прогресса
-    fill_chars = []
-    for i in range(filled):
-        if i == filled - 1:
-            # Последний элемент "пульсирует"
-            fill_chars.append(random.choice(["🟩", "🟨", "✨", "⚡"]))
-        else:
-            fill_chars.append("🟩")
-    
-    empty_chars = ["⬜"] * empty
-    
-    return "".join(fill_chars + empty_chars)
 
 # Загружаем историю заказов
 def load_orders_history():
@@ -238,12 +128,12 @@ def update_order_status(order_id, new_status):
                     bot.send_message(
                         chat_id=user_id,
                         text=(
-                            f"{live_emoji.animate('sparkles')} *СТАТУС ЗАКАЗА ИЗМЕНЕН!*\n\n"
+                            f"📢 *Статус вашего заказа изменен*\n\n"
                             f"🆔 Заказ: `{order_id}`\n"
                             f"📌 Новый статус: {get_status_display(new_status)}\n\n"
-                            f"{live_emoji.animate('hearts')} Спасибо, что пользуетесь нашим сервисом!"
+                            f"❤️ Спасибо за заказ!"
                         ),
-                        parse_mode=ParseMode.MARKDOWN
+                        parse_mode="Markdown"
                     )
                 except Exception as e:
                     logger.error(f"Ошибка отправки уведомления: {e}")
@@ -307,11 +197,11 @@ def calculate_price(price_dict, quantity):
 
 def estimate_delivery_time(total_items):
     if total_items <= 50:
-        return f"1 день {live_emoji.get('zap')}"
+        return "1 день ⚡"
     elif total_items <= 200:
-        return f"2 дня {live_emoji.get('time')}"
+        return "2 дня ⏰"
     else:
-        return f"3 дня {live_emoji.get('time')}"
+        return "3 дня 📅"
 
 def extract_number_from_text(text):
     numbers = re.findall(r'\d+', text)
@@ -462,7 +352,7 @@ def send_admin_notification(order_data, order_id, order_folder):
         total_pages = sum(f['items'] for f in doc_files)
         
         admin_message = (
-            f"{live_emoji.animate('party')} *НОВЫЙ ЗАКАЗ!* {live_emoji.animate('fire')}\n\n"
+            f"🎉 *НОВЫЙ ЗАКАЗ!*\n\n"
             f"👤 Клиент: {order_data['user_info']['first_name']}\n"
             f"🆔 Username: @{order_data['user_info']['username']}\n"
             f"📱 ID: `{order_data['user_info']['user_id']}`\n\n"
@@ -471,13 +361,13 @@ def send_admin_notification(order_data, order_id, order_folder):
         if order_data['type'] == 'photo':
             format_names = {"small": "Малый (A6)", "medium": "Средний", "large": "Большой (A4)"}
             admin_message += (
-                f"{live_emoji.get('photo')} Тип: Фотопечать\n"
+                f"📸 Тип: Фотопечать\n"
                 f"📏 Формат: {format_names[order_data['format']]}\n"
             )
         else:
             color_names = {"bw": "⚫ Черно-белая", "color": "🎨 Цветная"}
             admin_message += (
-                f"{live_emoji.get('document')} Тип: Документы\n"
+                f"📄 Тип: Документы\n"
                 f"🎨 Печать: {color_names[order_data['color']]}\n"
             )
         
@@ -492,8 +382,8 @@ def send_admin_notification(order_data, order_id, order_folder):
             admin_message += f"📄 Документы: {len(doc_files)} файлов, {total_pages} страниц\n"
         
         admin_message += (
-            f"\n{live_emoji.animate('money')} Сумма: {order_data['total']} руб.\n"
-            f"{live_emoji.animate('time')} Срок: {order_data['delivery']}\n\n"
+            f"\n💰 Сумма: {order_data['total']} руб.\n"
+            f"⏰ Срок: {order_data['delivery']}\n\n"
             f"🔗 Ссылка: {order_url}"
         )
         
@@ -501,124 +391,106 @@ def send_admin_notification(order_data, order_id, order_folder):
             bot.send_message(
                 chat_id=ADMIN_CHAT_ID,
                 text=admin_message,
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode="Markdown"
             )
             
     except Exception as e:
         logger.error(f"❌ Ошибка отправки уведомления админу: {e}")
 
-# ========== ФУНКЦИИ ДЛЯ ФОРМАТИРОВАНИЯ ==========
+# ========== ФОРМАТИРОВАНИЕ СООБЩЕНИЙ ==========
 def format_welcome_message(user_first_name):
-    """Форматирует приветственное сообщение"""
     return (
-        f"{live_emoji.animate('welcome')} *ДОБРО ПОЖАЛОВАТЬ, {user_first_name.upper()}!* {live_emoji.animate('hearts')}\n\n"
-        f"{live_emoji.animate('sparkles')} *Я помогу распечатать:*\n"
-        f"  {live_emoji.get('photo')} Фотографии – любые размеры\n"
-        f"  {live_emoji.get('document')} Документы – PDF, Word\n\n"
-        f"{live_emoji.sequence('stars', 2)} *Как это работает:*\n"
-        f"  1️⃣ Отправляй файлы (можно несколько)\n"
-        f"  2️⃣ Выбери параметры печати\n"
-        f"  3️⃣ Получи расчёт стоимости\n"
-        f"  4️⃣ Подтверди заказ\n\n"
-        f"{live_emoji.get('phone')} *Контакты:* `{CONTACT_PHONE}`\n"
-        f"{live_emoji.get('delivery')} *Доставка:* {DELIVERY_OPTIONS}\n\n"
-        f"{live_emoji.animate('stars')} *Отправляй файлы и начинаем!* {live_emoji.animate('fire')}"
+        f"👋 *Добро пожаловать, {user_first_name}!*\n\n"
+        f"📸🖨️ Я помогу распечатать фото и документы\n\n"
+        f"📎 *Как это работает:*\n"
+        f"1️⃣ Отправляй файлы (можно несколько)\n"
+        f"2️⃣ Выбери параметры печати\n"
+        f"3️⃣ Получи расчёт стоимости\n"
+        f"4️⃣ Подтверди заказ\n\n"
+        f"📞 Контакт: {CONTACT_PHONE}\n"
+        f"🚚 Доставка: {DELIVERY_OPTIONS}"
     )
 
 def format_file_added_message(stats):
-    """Форматирует сообщение о добавлении файла"""
     photo_count = stats.get('photo_count', 0)
     doc_count = stats.get('doc_count', 0)
     total_photos = stats.get('total_photos', 0)
     total_pages = stats.get('total_pages', 0)
     files_count = stats.get('files_count', 0)
     
-    text = f"{live_emoji.animate('success')} *ФАЙЛ УСПЕШНО ДОБАВЛЕН!* {live_emoji.animate('party')}\n\n"
-    text += f"📊 *ТЕКУЩАЯ СТАТИСТИКА:*\n"
+    text = f"✅ *Файл добавлен!*\n\n"
+    text += f"📊 *Статистика:*\n"
     
     if photo_count > 0:
-        text += f"  {live_emoji.get('photo')} *Фото:* {photo_count} файлов\n"
+        text += f"📸 Фото: {photo_count} файлов\n"
     if doc_count > 0:
-        text += f"  {live_emoji.get('document')} *Документы:* {doc_count} файлов\n"
-    text += f"  {live_emoji.get('file')} *Всего файлов:* {files_count}\n"
+        text += f"📄 Документы: {doc_count} файлов\n"
+    text += f"📦 Всего файлов: {files_count}\n"
     
     if total_photos > 0:
-        bar = create_progress_bar(total_photos, total_photos + total_pages)
-        text += f"\n  {live_emoji.get('photo')} *Фото в оригинале:* {total_photos} {bar}\n"
+        text += f"\n📸 Фото в оригинале: {total_photos}\n"
     if total_pages > 0:
-        bar = create_progress_bar(total_pages, total_photos + total_pages)
-        text += f"  {live_emoji.get('document')} *Страниц:* {total_pages} {bar}\n"
+        text += f"📄 Страниц: {total_pages}\n"
     text += "\n"
     
     return text
 
 def format_photo_format_choice():
-    """Форматирует сообщение выбора формата фото"""
     return (
-        f"{live_emoji.animate('photo')} *ВЫБЕРИТЕ ФОРМАТ ПЕЧАТИ* {live_emoji.animate('photo')}\n\n"
-        f"📏 *Доступные форматы:*\n"
-        f"  🖼 *Малый* – A6 / 10x15 см\n"
-        f"  🖼 *Средний* – 13x18 / 15x21 см\n"
-        f"  🖼 *Большой* – A4 / 21x30 см\n\n"
-        f"{live_emoji.get('info')} *Цены зависят от количества*\n"
-        f"Чем больше копий, тем дешевле! {live_emoji.get('money')}"
+        f"📸 *Выберите формат печати*\n\n"
+        f"🖼 *Малый* – A6 / 10x15 см\n"
+        f"🖼 *Средний* – 13x18 / 15x21 см\n"
+        f"🖼 *Большой* – A4 / 21x30 см\n\n"
+        f"💰 Цены зависят от количества"
     )
 
 def format_doc_type_choice():
-    """Форматирует сообщение выбора типа печати документов"""
     return (
-        f"{live_emoji.animate('document')} *ВЫБЕРИТЕ ТИП ПЕЧАТИ* {live_emoji.animate('document')}\n\n"
-        f"🎨 *Варианты печати:*\n"
-        f"  ⚫ *Черно-белая* – для текстов\n"
-        f"  🎨 *Цветная* – для графики\n\n"
-        f"{live_emoji.animate('money')} *Цены:*\n"
-        f"  ⚫ от 10 руб./стр.\n"
-        f"  🎨 от 20 руб./стр.\n"
-        f"  (зависит от объёма) {live_emoji.get('zap')}"
+        f"📄 *Выберите тип печати*\n\n"
+        f"⚫ *Черно-белая* – для текстов\n"
+        f"🎨 *Цветная* – для графики\n\n"
+        f"💰 Цены:\n"
+        f"⚫ от 10 руб./стр.\n"
+        f"🎨 от 20 руб./стр."
     )
 
 def format_quantity_choice(total_photos, total_pages, total_items):
-    """Форматирует сообщение выбора количества копий"""
-    text = f"{live_emoji.animate('copy')} *ВЫБЕРИТЕ КОЛИЧЕСТВО КОПИЙ* {live_emoji.animate('copy')}\n\n"
+    text = f"🔢 *Выберите количество копий*\n\n"
     text += f"📊 *В ваших файлах:*\n"
     
     if total_photos > 0:
-        text += f"  {live_emoji.get('photo')} Фото: {total_photos}\n"
+        text += f"📸 Фото: {total_photos}\n"
     if total_pages > 0:
-        text += f"  {live_emoji.get('document')} Страниц: {total_pages}\n"
-    text += f"  {live_emoji.get('file')} Всего единиц: {total_items}\n\n"
-    text += f"{live_emoji.get('question')} *Сколько копий напечатать?*\n"
-    text += f"👉 *Просто введите число* от 1 до 1000\n"
-    text += f"или выберите из кнопок ниже:"
+        text += f"📄 Страниц: {total_pages}\n"
+    text += f"📦 Всего единиц: {total_items}\n\n"
+    text += f"👉 *Введите число* от 1 до 1000\n"
+    text += f"или выберите из кнопок:"
     
     return text
 
 def format_order_summary(session, details):
-    """Форматирует сводку заказа для подтверждения"""
     total_photos_result = session.get('total_photos', 0)
     total_pages_result = session.get('total_pages', 0)
     total = session.get('total', 0)
     delivery = session.get('delivery', '')
     files = session.get('files', [])
     
-    text = f"{live_emoji.animate('order')} *ПРОВЕРЬТЕ ЗАКАЗ* {live_emoji.animate('order')}\n\n"
-    text += f"{details}\n"
-    text += f"📦 *ИТОГОВАЯ ИНФОРМАЦИЯ:*\n"
-    text += f"  {live_emoji.get('file')} Всего файлов: {len(files)}\n"
+    text = f"{details}\n"
+    text += f"📦 *Итог:*\n"
+    text += f"📎 Всего файлов: {len(files)}\n"
     
     if total_photos_result > 0:
-        text += f"  {live_emoji.get('photo')} Фото к печати: {total_photos_result}\n"
+        text += f"📸 Фото к печати: {total_photos_result}\n"
     if total_pages_result > 0:
-        text += f"  {live_emoji.get('document')} Страниц к печати: {total_pages_result}\n"
+        text += f"📄 Страниц к печати: {total_pages_result}\n"
     text += f"\n"
-    text += f"  {live_emoji.animate('money')} *ИТОГОВАЯ СУММА:* {total} руб.\n"
-    text += f"  {live_emoji.animate('time')} *Срок выполнения:* {delivery}\n\n"
-    text += f"{live_emoji.get('question')} *Всё верно?*"
+    text += f"💰 *ИТОГО:* {total} руб.\n"
+    text += f"⏰ Срок: {delivery}\n\n"
+    text += f"❓ *Всё верно?*"
     
     return text
 
 def format_order_confirmation(order_id, session):
-    """Форматирует сообщение о подтверждении заказа"""
     total_photos = session.get('total_photos', 0)
     total_pages = session.get('total_pages', 0)
     total = session.get('total', 0)
@@ -631,27 +503,24 @@ def format_order_confirmation(order_id, session):
     original_pages = sum(f['items'] for f in doc_files)
     
     text = (
-        f"{live_emoji.animate('party')} *ЗАКАЗ УСПЕШНО ОФОРМЛЕН!* {live_emoji.animate('tada')}\n\n"
-        f"🎯 *ДЕТАЛИ ЗАКАЗА:*\n"
-        f"  🆔 *Номер:* `{order_id}`\n"
-        f"  👤 *Клиент:* {session['user_info']['first_name']}\n"
+        f"✅ *ЗАКАЗ ОФОРМЛЕН!*\n\n"
+        f"🆔 Номер: `{order_id}`\n"
+        f"👤 Клиент: {session['user_info']['first_name']}\n"
     )
     
     if original_photos > 0:
-        text += f"\n  {live_emoji.get('photo')} *Фото в оригинале:* {original_photos}\n"
-        text += f"  {live_emoji.get('photo')} *Фото к печати:* {original_photos * quantity}\n"
+        text += f"\n📸 Фото в оригинале: {original_photos}\n"
+        text += f"📸 Фото к печати: {original_photos * quantity}\n"
     if original_pages > 0:
-        text += f"\n  {live_emoji.get('document')} *Страниц в оригинале:* {original_pages}\n"
-        text += f"  {live_emoji.get('document')} *Страниц к печати:* {original_pages * quantity}\n"
+        text += f"\n📄 Страниц в оригинале: {original_pages}\n"
+        text += f"📄 Страниц к печати: {original_pages * quantity}\n"
     text += f"\n"
-    text += f"  {live_emoji.animate('money')} *Сумма к оплате:* {total} руб.\n"
-    text += f"  {live_emoji.animate('time')} *Срок выполнения:* {delivery}\n\n"
-    text += f"{live_emoji.get('phone')} *КОНТАКТНАЯ ИНФОРМАЦИЯ:*\n"
-    text += f"  📞 *Телефон:* `{CONTACT_PHONE}`\n"
-    text += f"  {live_emoji.get('delivery')} *Способы получения:* {DELIVERY_OPTIONS}\n\n"
-    text += f"📌 *СТАТУС ЗАКАЗА:* {get_status_display('new')}\n"
-    text += f"Вы будете получать уведомления при изменении статуса!\n\n"
-    text += f"{live_emoji.animate('hearts')} *СПАСИБО ЗА ЗАКАЗ!* {live_emoji.animate('hearts')}"
+    text += f"💰 Сумма: {total} руб.\n"
+    text += f"⏰ Срок: {delivery}\n\n"
+    text += f"📞 Контакт: {CONTACT_PHONE}\n"
+    text += f"🚚 Доставка: {DELIVERY_OPTIONS}\n\n"
+    text += f"📌 Статус: {get_status_display('new')}\n\n"
+    text += f"❤️ *Спасибо за заказ!*"
     
     return text
 
@@ -671,7 +540,7 @@ def start(update, context):
     
     update.message.reply_text(
         welcome,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode="Markdown"
     )
     return WAITING_FOR_FILE
 
@@ -793,8 +662,8 @@ def process_media_group(user_id, media_group_id, context):
         if not user_sessions[user_id]["files"]:
             context.bot.send_message(
                 chat_id=user_id,
-                text=f"{live_emoji.get('error')} *Ошибка загрузки файлов*",
-                parse_mode=ParseMode.MARKDOWN
+                text="❌ *Ошибка загрузки файлов*",
+                parse_mode="Markdown"
             )
             return
         
@@ -815,31 +684,30 @@ def process_media_group(user_id, media_group_id, context):
         if doc_count > 0:
             text += format_doc_type_choice()
             keyboard = [
-                [InlineKeyboardButton("⚫ Черно-белая печать", callback_data="doc_bw")],
-                [InlineKeyboardButton("🎨 Цветная печать", callback_data="doc_color")],
-                [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
-                [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+                [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
+                [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
+                [InlineKeyboardButton("📎 Добавить ещё", callback_data="add_more")],
+                [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
             ]
         else:
             text += format_photo_format_choice()
             keyboard = [
-                [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
-                [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
-                [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
-                [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
-                [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+                [InlineKeyboardButton("🖼 Малый", callback_data="photo_small")],
+                [InlineKeyboardButton("🖼 Средний", callback_data="photo_medium")],
+                [InlineKeyboardButton("🖼 Большой", callback_data="photo_large")],
+                [InlineKeyboardButton("📎 Добавить ещё", callback_data="add_more")],
+                [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
             ]
         
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         
     except Exception as e:
-        logger.error(f"Ошибка при обработке группы файлов: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Ошибка: {e}")
 
 def process_single_file(update, context):
     user_id = update.effective_user.id
@@ -878,9 +746,8 @@ def process_single_file(update, context):
             file_type = "doc"
         else:
             message.reply_text(
-                f"{live_emoji.get('error')} *Неподдерживаемый формат*\n\n"
-                f"Отправьте: JPG, PNG, PDF, DOC, DOCX",
-                parse_mode=ParseMode.MARKDOWN
+                "❌ *Неподдерживаемый формат*\n\nОтправьте: JPG, PNG, PDF, DOC, DOCX",
+                parse_mode="Markdown"
             )
             return WAITING_FOR_FILE
     elif message.photo:
@@ -893,8 +760,8 @@ def process_single_file(update, context):
     file_path, temp_dir = download_file(file_obj, file_name)
     if not file_path:
         message.reply_text(
-            f"{live_emoji.get('error')} *Ошибка загрузки*",
-            parse_mode=ParseMode.MARKDOWN
+            "❌ *Ошибка загрузки*",
+            parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
     
@@ -935,24 +802,24 @@ def process_single_file(update, context):
     if doc_count > 0:
         text += format_doc_type_choice()
         keyboard = [
-            [InlineKeyboardButton("⚫ Черно-белая печать", callback_data="doc_bw")],
-            [InlineKeyboardButton("🎨 Цветная печать", callback_data="doc_color")],
-            [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
-            [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+            [InlineKeyboardButton("⚫ Черно-белая", callback_data="doc_bw")],
+            [InlineKeyboardButton("🎨 Цветная", callback_data="doc_color")],
+            [InlineKeyboardButton("📎 Добавить ещё", callback_data="add_more")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
         ]
     else:
         text += format_photo_format_choice()
         keyboard = [
-            [InlineKeyboardButton("🖼 Малый (A6/10x15)", callback_data="photo_small")],
-            [InlineKeyboardButton("🖼 Средний (13x18/15x21)", callback_data="photo_medium")],
-            [InlineKeyboardButton("🖼 Большой (A4/21x30)", callback_data="photo_large")],
-            [InlineKeyboardButton("📎 Добавить ещё файлы", callback_data="add_more")],
-            [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+            [InlineKeyboardButton("🖼 Малый", callback_data="photo_small")],
+            [InlineKeyboardButton("🖼 Средний", callback_data="photo_medium")],
+            [InlineKeyboardButton("🖼 Большой", callback_data="photo_large")],
+            [InlineKeyboardButton("📎 Добавить ещё", callback_data="add_more")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
         ]
     
     message.reply_text(
         text,
-        parse_mode=ParseMode.MARKDOWN,
+        parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return WAITING_FOR_FILE
@@ -968,36 +835,31 @@ def cancel_order(user_id, query=None, context=None):
         del user_sessions[user_id]
         logger.info(f"✅ Сессия пользователя {user_id} очищена")
     
-    keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
+    keyboard = [[InlineKeyboardButton("🔄 Новый заказ", callback_data="new_order")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    text = (
-        f"{live_emoji.animate('error')} *ЗАКАЗ ОТМЕНЁН*\n\n"
-        f"Все загруженные файлы удалены.\n\n"
-        f"{live_emoji.get('question')} Хотите оформить новый заказ?"
-    )
+    text = "❌ *Заказ отменён*\n\nВсе файлы удалены.\n\n🔄 Хотите оформить новый заказ?"
     
     if query:
         try:
             query.edit_message_text(
                 text,
-                parse_mode=ParseMode.MARKDOWN,
+                parse_mode="Markdown",
                 reply_markup=reply_markup
             )
-        except Exception as e:
-            logger.error(f"Ошибка редактирования: {e}")
+        except:
             if context:
                 context.bot.send_message(
                     chat_id=user_id,
                     text=text,
-                    parse_mode=ParseMode.MARKDOWN,
+                    parse_mode="Markdown",
                     reply_markup=reply_markup
                 )
     elif context:
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode="Markdown",
             reply_markup=reply_markup
         )
     
@@ -1016,9 +878,8 @@ def button_handler(update, context):
     
     if data == "add_more":
         query.edit_message_text(
-            f"{live_emoji.get('file')} *Отправьте следующие файлы*\n\n"
-            f"Можно отправлять несколько файлов за раз!",
-            parse_mode=ParseMode.MARKDOWN
+            "📤 *Отправьте следующие файлы*",
+            parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
     
@@ -1033,11 +894,8 @@ def button_handler(update, context):
             del user_sessions[user_id]
         
         query.edit_message_text(
-            f"{live_emoji.animate('welcome')} *НОВЫЙ ЗАКАЗ* {live_emoji.animate('welcome')}\n\n"
-            f"Отправьте файлы для печати:\n"
-            f"📸 JPG, PNG – фотографии\n"
-            f"📄 PDF, DOC, DOCX – документы",
-            parse_mode=ParseMode.MARKDOWN
+            "🔄 *Новый заказ*\n\nОтправьте файлы для печати:",
+            parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
     
@@ -1056,7 +914,7 @@ def button_handler(update, context):
         
         query.edit_message_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -1075,7 +933,7 @@ def button_handler(update, context):
         
         query.edit_message_text(
             text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -1094,7 +952,7 @@ def button_handler(update, context):
         total = 0
         total_photos_result = 0
         total_pages_result = 0
-        details = f"{live_emoji.animate('stars')} *ДЕТАЛЬНЫЙ РАСЧЁТ:* {live_emoji.animate('stars')}\n\n"
+        details = "📊 *Детальный расчёт:*\n\n"
         
         for i, f in enumerate(files, 1):
             if f['type'] == 'photo':
@@ -1108,11 +966,11 @@ def button_handler(update, context):
                 file_total = calculate_price(price_dict, quantity)
                 total += file_total
                 details += (
-                    f"{live_emoji.get('photo')} *Файл {i}:*\n"
-                    f"  📄 `{f['name'][:30]}`...\n"
-                    f"  📸 {f['items']} фото × {quantity} = {f['items'] * quantity} фото\n"
-                    f"  💰 {file_total // quantity} руб./копия\n"
-                    f"  💰 *Итого:* {file_total} руб.\n\n"
+                    f"📸 *Файл {i}:*\n"
+                    f"📄 {f['name'][:30]}...\n"
+                    f"📸 {f['items']} фото × {quantity} = {f['items'] * quantity} фото\n"
+                    f"💰 {file_total // quantity} руб./копия\n"
+                    f"💰 Итого: {file_total} руб.\n\n"
                 )
             else:
                 price_dict = DOC_PRICES[session["color"]]
@@ -1120,11 +978,11 @@ def button_handler(update, context):
                 file_total = calculate_price(price_dict, file_items)
                 total += file_total
                 details += (
-                    f"{live_emoji.get('document')} *Файл {i}:*\n"
-                    f"  📄 `{f['name'][:30]}`...\n"
-                    f"  📄 {f['items']} стр. × {quantity} = {file_items} стр.\n"
-                    f"  💰 {file_total // file_items} руб./стр.\n"
-                    f"  💰 *Итого:* {file_total} руб.\n\n"
+                    f"📄 *Файл {i}:*\n"
+                    f"📄 {f['name'][:30]}...\n"
+                    f"📄 {f['items']} стр. × {quantity} = {file_items} стр.\n"
+                    f"💰 {file_total // file_items} руб./стр.\n"
+                    f"💰 Итого: {file_total} руб.\n\n"
                 )
         
         session["total"] = total
@@ -1135,11 +993,10 @@ def button_handler(update, context):
         text = format_order_summary(session, details)
         
         keyboard = [
-            [InlineKeyboardButton("✅ Да, подтвердить заказ", callback_data="confirm"),
-             InlineKeyboardButton("❌ Нет, отменить", callback_data="cancel")]
+            [InlineKeyboardButton("✅ Да", callback_data="confirm"),
+             InlineKeyboardButton("❌ Нет", callback_data="cancel")]
         ]
         
-        # Удаляем предыдущее сообщение
         try:
             query.message.delete()
         except:
@@ -1148,7 +1005,7 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=user_id,
             text=text,
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return CONFIRMING_ORDER
@@ -1173,7 +1030,7 @@ def button_handler(update, context):
             context.bot.send_message(
                 chat_id=user_id,
                 text=client_message,
-                parse_mode=ParseMode.MARKDOWN
+                parse_mode="Markdown"
             )
             
             photo_files = [f for f in session['files'] if f['type'] == 'photo']
@@ -1199,16 +1056,15 @@ def button_handler(update, context):
         else:
             context.bot.send_message(
                 chat_id=user_id,
-                text=f"{live_emoji.get('error')} *Ошибка при сохранении заказа*",
-                parse_mode=ParseMode.MARKDOWN
+                text="❌ *Ошибка при сохранении заказа*",
+                parse_mode="Markdown"
             )
         
-        # Очищаем временные файлы
         for d in session.get("temp_dirs", []):
             shutil.rmtree(d, ignore_errors=True)
         del user_sessions[user_id]
         
-        keyboard = [[InlineKeyboardButton("🔄 Сделать новый заказ", callback_data="new_order")]]
+        keyboard = [[InlineKeyboardButton("🔄 Новый заказ", callback_data="new_order")]]
         try:
             query.message.delete()
         except:
@@ -1216,8 +1072,8 @@ def button_handler(update, context):
         
         context.bot.send_message(
             chat_id=user_id,
-            text=f"{live_emoji.get('question')} Хотите оформить ещё один заказ?",
-            parse_mode=ParseMode.MARKDOWN,
+            text="🔄 Хотите оформить ещё один заказ?",
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return WAITING_FOR_FILE
@@ -1225,7 +1081,6 @@ def button_handler(update, context):
     return WAITING_FOR_FILE
 
 def get_quantity_keyboard():
-    """Клавиатура выбора количества"""
     keyboard = [
         [
             InlineKeyboardButton("1", callback_data="qty_1"), 
@@ -1247,40 +1102,35 @@ def get_quantity_keyboard():
             InlineKeyboardButton("400", callback_data="qty_400"), 
             InlineKeyboardButton("500", callback_data="qty_500")
         ],
-        [InlineKeyboardButton("❌ Отмена заказа", callback_data="cancel")]
+        [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def handle_quantity_input(update, context):
-    """Обработка ручного ввода количества"""
     user_id = update.effective_user.id
     message = update.message
     text = message.text.strip()
     
-    # Проверяем, что пользователь в сессии
     if user_id not in user_sessions:
         message.reply_text(
-            f"{live_emoji.get('error')} *Ошибка*\n\nНачните заново с /start",
-            parse_mode=ParseMode.MARKDOWN
+            "❌ *Ошибка*\n\nНачните заново с /start",
+            parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
     
-    # Проверяем, что выбрали тип печати
     if user_sessions[user_id].get("type") not in ["photo", "doc"]:
         message.reply_text(
-            f"{live_emoji.get('attention')} *Сначала выберите тип печати*",
-            parse_mode=ParseMode.MARKDOWN
+            "⚠️ *Сначала выберите тип печати*",
+            parse_mode="Markdown"
         )
         return WAITING_FOR_FILE
     
-    # Извлекаем число из текста
     numbers = re.findall(r'\d+', text)
     
     if not numbers:
         message.reply_text(
-            f"{live_emoji.get('attention')} *Пожалуйста, введите число*\n\n"
-            f"Например: 1, 5, 10, 100",
-            parse_mode=ParseMode.MARKDOWN,
+            "⚠️ *Введите число*\n\nНапример: 1, 5, 10, 100",
+            parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
@@ -1289,43 +1139,37 @@ def handle_quantity_input(update, context):
     
     if quantity < 1:
         message.reply_text(
-            f"{live_emoji.get('attention')} *Число должно быть больше 0*",
-            parse_mode=ParseMode.MARKDOWN,
+            "⚠️ *Число должно быть больше 0*",
+            parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
     
     if quantity > 1000:
         message.reply_text(
-            f"{live_emoji.get('attention')} *Максимальное количество - 1000*\n\n"
-            f"Введите число от 1 до 1000",
-            parse_mode=ParseMode.MARKDOWN,
+            "⚠️ *Максимум 1000*\n\nВведите число от 1 до 1000",
+            parse_mode="Markdown",
             reply_markup=get_quantity_keyboard()
         )
         return ENTERING_QUANTITY
     
     # Отправляем подтверждение
     message.reply_text(
-        f"{live_emoji.get('success')} *Принято!* Количество: {quantity}",
-        parse_mode=ParseMode.MARKDOWN
+        f"✅ *Принято!* Количество: {quantity}",
+        parse_mode="Markdown"
     )
     
-    # Создаем искусственный callback query
+    # Создаем callback query
     class FakeQuery:
         def __init__(self, user_id, data):
             self.data = data
             self.from_user = type('User', (), {'id': user_id})()
-            self.message = type('Msg', (), {
-                'delete': lambda: None,
-                'chat': type('Chat', (), {'id': user_id})()
-            })()
-        
+            self.message = type('Msg', (), {'delete': lambda: None})()
         def answer(self):
             pass
     
     fake_query = FakeQuery(user_id, f'qty_{quantity}')
     
-    # Вызываем обработчик
     return button_handler(update, context)
 
 # ========== ВЕБ-ИНТЕРФЕЙС ==========
@@ -1378,7 +1222,6 @@ def list_orders():
                                 photos.append(file_info)
                     
                     created = datetime.fromtimestamp(os.path.getctime(item_path))
-                    age = datetime.now() - created
                     
                     orders.append({
                         'id': item,
@@ -1389,7 +1232,6 @@ def list_orders():
                         'file_count': file_count,
                         'total_size': format_file_size(total_size),
                         'created': created.strftime('%d.%m.%Y %H:%M'),
-                        'age_days': age.days,
                         'status': get_status_display(status)
                     })
         
@@ -1526,15 +1368,6 @@ def view_order(order_id):
         
         created = datetime.fromtimestamp(os.path.getctime(order_path))
         
-        photo_html = ""
-        for p in photos:
-            photo_html += f'<div class="photo-item"><img src="{p["url"]}" class="photo-img" onclick="window.open(\'{p["url"]}\')"><br>{p["name"]}</div>'
-        
-        file_html = ""
-        for f in files:
-            icon = "📸" if f["is_photo"] else "📄"
-            file_html += f'<a href="{f["url"]}" class="file-card" download><div class="file-icon">{icon}</div><div class="file-name">{f["name"]}</div><div class="file-size">{f["size_formatted"]}</div></a>'
-        
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -1585,35 +1418,25 @@ def view_order(order_id):
                 </div>
                 <div class="content">
                     <div>
-                        <h3>📌 Текущий статус: {get_status_display(status)}</h3>
+                        <h3>📌 Статус: {get_status_display(status)}</h3>
                         <div>
-                            <button class="status-btn new" onclick="updateStatus('new')">🆕 Новый</button>
-                            <button class="status-btn processing" onclick="updateStatus('processing')">🔄 В обработке</button>
-                            <button class="status-btn printing" onclick="updateStatus('printing')">🖨️ В печати</button>
-                            <button class="status-btn ready" onclick="updateStatus('ready')">✅ Готов</button>
-                            <button class="status-btn shipped" onclick="updateStatus('shipped')">📦 Отправлен</button>
-                            <button class="status-btn delivered" onclick="updateStatus('delivered')">🏁 Доставлен</button>
-                            <button class="status-btn cancelled" onclick="updateStatus('cancelled')">❌ Отменен</button>
+                            <button class="status-btn new" onclick="updateStatus('new')">🆕</button>
+                            <button class="status-btn processing" onclick="updateStatus('processing')">🔄</button>
+                            <button class="status-btn printing" onclick="updateStatus('printing')">🖨️</button>
+                            <button class="status-btn ready" onclick="updateStatus('ready')">✅</button>
+                            <button class="status-btn shipped" onclick="updateStatus('shipped')">📦</button>
+                            <button class="status-btn delivered" onclick="updateStatus('delivered')">🏁</button>
+                            <button class="status-btn cancelled" onclick="updateStatus('cancelled')">❌</button>
                         </div>
                     </div>
                     
                     <div>
-                        <h3>📋 Информация о заказе</h3>
+                        <h3>📋 Информация</h3>
                         <pre>{info_text}</pre>
                     </div>
                     
-                    <div>
-                        <h3>📸 Фото ({len(photos)})</h3>
-                        <div class="photo-gallery">{photo_html}</div>
-                    </div>
-                    
-                    <div>
-                        <h3>📄 Файлы ({len(files)})</h3>
-                        <div class="files-grid">{file_html}</div>
-                    </div>
-                    
                     <div style="text-align: center;">
-                        <a href="/orders/{order_id}/download" class="download-all">⬇️ Скачать все (ZIP)</a>
+                        <a href="/orders/{order_id}/download" class="download-all">⬇️ Скачать все</a>
                     </div>
                 </div>
             </div>
@@ -1755,8 +1578,8 @@ def error_handler(update, context):
         if update and update.effective_chat:
             context.bot.send_message(
                 chat_id=update.effective_chat.id,
-                text=f"{live_emoji.get('error')} *Произошла ошибка*\n\nПожалуйста, попробуйте еще раз или начните заново с /start",
-                parse_mode=ParseMode.MARKDOWN
+                text="❌ *Произошла ошибка*\n\nПожалуйста, начните заново с /start",
+                parse_mode="Markdown"
             )
     except:
         pass
@@ -1792,8 +1615,6 @@ conv_handler = ConversationHandler(
     },
     fallbacks=[CommandHandler("start", start)],
     allow_reentry=True,
-    per_user=True,
-    per_chat=True,
 )
 
 dispatcher.add_handler(conv_handler)

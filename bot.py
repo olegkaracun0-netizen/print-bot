@@ -300,7 +300,7 @@ def ask_ai(user_id, user_message):
 
     try:
         payload = json.dumps({
-            "model": "meta-llama/llama-3.3-8b-instruct:free",
+            "model": "meta-llama/llama-3.1-8b-instruct:free",
             "messages": messages,
             "max_tokens": 800,
             "temperature": 0.7,

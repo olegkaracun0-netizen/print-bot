@@ -278,12 +278,14 @@ def download_file(file_obj, file_name):
 def ask_ai(user_id, user_message):
     """Отправляет сообщение в Anthropic API и возвращает ответ."""
     if not ANTHROPIC_API_KEY:
+        logger.error("AI: ANTHROPIC_API_KEY не задан!")
         return (
-            f"{BOT_IC} ИИ-ассистент временно недоступен.\n\n"
+            f"{BOT_IC} ИИ-ассистент не настроен.\n\n"
+            f"Администратору нужно добавить ANTHROPIC_API_KEY в переменные окружения.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
 
-    # Храним историю диалога (последние 10 сообщений)
+    # Храним историю диалога
     if user_id not in ai_histories:
         ai_histories[user_id] = []
 
@@ -292,17 +294,19 @@ def ask_ai(user_id, user_message):
         "content": user_message
     })
 
-    # Ограничиваем историю
+    # Ограничиваем историю — не больше 10 пар сообщений
     if len(ai_histories[user_id]) > 20:
         ai_histories[user_id] = ai_histories[user_id][-20:]
 
     try:
         payload = json.dumps({
-            "model": "claude-sonnet-4-5",
-            "max_tokens": 1000,
+            "model": "claude-haiku-4-5",
+            "max_tokens": 800,
             "system": AI_SYSTEM_PROMPT,
             "messages": ai_histories[user_id],
         }).encode("utf-8")
+
+        logger.info(f"AI запрос от {user_id}: {user_message[:50]}")
 
         req = urllib.request.Request(
             "https://api.anthropic.com/v1/messages",
@@ -316,8 +320,10 @@ def ask_ai(user_id, user_message):
         )
 
         with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            raw  = resp.read().decode("utf-8")
+            data = json.loads(raw)
 
+        logger.info(f"AI ответ получен для {user_id}")
         reply = data["content"][0]["text"]
 
         # Сохраняем ответ в историю
@@ -328,11 +334,31 @@ def ask_ai(user_id, user_message):
 
         return reply
 
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        logger.error(f"AI HTTP {e.code} BODY: {body}")
+        # Пробуем распарсить ошибку от Anthropic
+        try:
+            err_data = json.loads(body)
+            err_msg  = err_data.get("error", {}).get("message", body)
+        except Exception:
+            err_msg = body[:200]
+        logger.error(f"AI детали ошибки: {err_msg}")
+        return (
+            f"😔 Ошибка ИИ (код {e.code}): {err_msg[:100]}\n\n"
+            f"По вопросам пишите: {CONTACT_PHONE}"
+        )
+    except urllib.error.URLError as e:
+        logger.error(f"AI URLError: {e.reason}")
+        return (
+            f"😔 Нет связи с ИИ-сервером.\n\n"
+            f"По вопросам пишите: {CONTACT_PHONE}"
+        )
     except Exception as e:
-        logger.error(f"Ошибка AI: {e}")
+        logger.error(f"AI неизвестная ошибка: {e}\n{traceback.format_exc()}")
         return (
             f"😔 Не смог получить ответ от ИИ.\n\n"
-            f"По вопросам пишите напрямую: {CONTACT_PHONE}"
+            f"По вопросам пишите: {CONTACT_PHONE}"
         )
 
 # ══════════════════════════════════════════

@@ -298,7 +298,7 @@ def ask_ai(user_id, user_message):
 
     try:
         payload = json.dumps({
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-5",
             "max_tokens": 1000,
             "system": AI_SYSTEM_PROMPT,
             "messages": ai_histories[user_id],

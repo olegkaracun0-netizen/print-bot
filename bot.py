@@ -36,7 +36,7 @@ if not TOKEN:
     print("❌ ОШИБКА: TOKEN не задан!")
     sys.exit(1)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")   # для ИИ-ассистента (бесплатно)
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")   # для ИИ-ассистента (бесплатно)
 
 ADMIN_CHAT_ID = 483613049
 
@@ -273,19 +273,18 @@ def download_file(file_obj, file_name):
         return None, None
 
 # ══════════════════════════════════════════
-#  ИИ-АССИСТЕНТ (Groq — бесплатно, 14400 запросов/день)
+#  ИИ-АССИСТЕНТ (OpenRouter — есть бесплатные модели)
 # ══════════════════════════════════════════
 def ask_ai(user_id, user_message):
-    """Отправляет сообщение в Groq API (бесплатно) и возвращает ответ."""
-    if not GROQ_API_KEY:
-        logger.error("AI: GROQ_API_KEY не задан!")
+    """Отправляет сообщение через OpenRouter API и возвращает ответ."""
+    if not OPENROUTER_API_KEY:
+        logger.error("AI: OPENROUTER_API_KEY не задан!")
         return (
             f"{BOT_IC} ИИ-ассистент не настроен.\n\n"
-            f"Администратору нужно добавить GROQ_API_KEY в переменные окружения.\n\n"
+            f"Администратору нужно добавить OPENROUTER_API_KEY в переменные окружения.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
 
-    # Храним историю диалога (формат OpenAI-совместимый)
     if user_id not in ai_histories:
         ai_histories[user_id] = []
 
@@ -294,40 +293,45 @@ def ask_ai(user_id, user_message):
         "content": user_message,
     })
 
-    # Ограничиваем историю — не больше 10 пар
     if len(ai_histories[user_id]) > 20:
         ai_histories[user_id] = ai_histories[user_id][-20:]
 
-    # Системный промпт идёт первым сообщением
     messages = [{"role": "system", "content": AI_SYSTEM_PROMPT}] + ai_histories[user_id]
 
     try:
         payload = json.dumps({
-            "model": "llama-3.3-70b-versatile",
+            "model": "meta-llama/llama-3.3-8b-instruct:free",
             "messages": messages,
             "max_tokens": 800,
             "temperature": 0.7,
         }).encode("utf-8")
 
         req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
+            "https://openrouter.ai/api/v1/chat/completions",
             data=payload,
             headers={
                 "Content-Type":  "application/json",
-                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer":  RENDER_URL or "https://printbot.onrender.com",
+                "X-Title":       "Print Bot",
             },
             method="POST",
         )
 
-        logger.info(f"Groq запрос от {user_id}: {user_message[:50]}")
+        logger.info(f"OpenRouter запрос от {user_id}: {user_message[:50]}")
 
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
-        reply = data["choices"][0]["message"]["content"]
-        logger.info(f"Groq ответ получен для {user_id}")
+        # Проверяем наличие ответа
+        choices = data.get("choices", [])
+        if not choices:
+            logger.error(f"OpenRouter пустой ответ: {data}")
+            return f"😔 ИИ не ответил. Попробуй ещё раз!\n\nПо вопросам: {CONTACT_PHONE}"
 
-        # Сохраняем ответ в историю
+        reply = choices[0]["message"]["content"]
+        logger.info(f"OpenRouter ответ получен для {user_id}")
+
         ai_histories[user_id].append({
             "role": "assistant",
             "content": reply,
@@ -337,24 +341,24 @@ def ask_ai(user_id, user_message):
 
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="ignore")
-        logger.error(f"Groq HTTP {e.code} BODY: {body}")
+        logger.error(f"OpenRouter HTTP {e.code} BODY: {body}")
         try:
             err_msg = json.loads(body).get("error", {}).get("message", body)
         except Exception:
             err_msg = body[:200]
-        logger.error(f"Groq детали ошибки: {err_msg}")
+        logger.error(f"OpenRouter детали ошибки: {err_msg}")
         return (
             f"😔 Ошибка ИИ ({e.code}): {err_msg[:120]}\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
     except urllib.error.URLError as e:
-        logger.error(f"Groq URLError: {e.reason}")
+        logger.error(f"OpenRouter URLError: {e.reason}")
         return (
             f"😔 Нет связи с ИИ-сервером.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
     except Exception as e:
-        logger.error(f"Groq неизвестная ошибка: {e}\n{traceback.format_exc()}")
+        logger.error(f"OpenRouter ошибка: {e}\n{traceback.format_exc()}")
         return (
             f"😔 Не смог получить ответ от ИИ.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
@@ -1654,7 +1658,7 @@ print("=" * 55)
 print("🚀  ЗАПУСК БОТА v4.0")
 print(f"📁  Заказы:  {ORDERS_PATH}")
 print(f"👤  Admin:   {ADMIN_CHAT_ID}")
-print(f"🤖  AI:      {'✅ Groq включён' if GROQ_API_KEY else '❌ GROQ_API_KEY не задан'}")
+print(f"🤖  AI:      {'✅ OpenRouter включён' if OPENROUTER_API_KEY else '❌ OPENROUTER_API_KEY не задан'}")
 print("=" * 55)
 
 bot        = telegram.Bot(token=TOKEN)

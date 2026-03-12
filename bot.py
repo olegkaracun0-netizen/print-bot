@@ -36,7 +36,7 @@ if not TOKEN:
     print("❌ ОШИБКА: TOKEN не задан!")
     sys.exit(1)
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")   # для ИИ-ассистента (бесплатно)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")   # для ИИ-ассистента (бесплатно)
 
 ADMIN_CHAT_ID = 483613049
 
@@ -273,91 +273,88 @@ def download_file(file_obj, file_name):
         return None, None
 
 # ══════════════════════════════════════════
-#  ИИ-АССИСТЕНТ (Google Gemini — бесплатно)
+#  ИИ-АССИСТЕНТ (Groq — бесплатно, 14400 запросов/день)
 # ══════════════════════════════════════════
 def ask_ai(user_id, user_message):
-    """Отправляет сообщение в Google Gemini API (бесплатно) и возвращает ответ."""
-    if not GEMINI_API_KEY:
-        logger.error("AI: GEMINI_API_KEY не задан!")
+    """Отправляет сообщение в Groq API (бесплатно) и возвращает ответ."""
+    if not GROQ_API_KEY:
+        logger.error("AI: GROQ_API_KEY не задан!")
         return (
             f"{BOT_IC} ИИ-ассистент не настроен.\n\n"
-            f"Администратору нужно добавить GEMINI_API_KEY в переменные окружения.\n\n"
+            f"Администратору нужно добавить GROQ_API_KEY в переменные окружения.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
 
-    # Храним историю диалога (формат Gemini)
+    # Храним историю диалога (формат OpenAI-совместимый)
     if user_id not in ai_histories:
         ai_histories[user_id] = []
 
     ai_histories[user_id].append({
         "role": "user",
-        "parts": [{"text": user_message}]
+        "content": user_message,
     })
 
     # Ограничиваем историю — не больше 10 пар
     if len(ai_histories[user_id]) > 20:
         ai_histories[user_id] = ai_histories[user_id][-20:]
 
+    # Системный промпт идёт первым сообщением
+    messages = [{"role": "system", "content": AI_SYSTEM_PROMPT}] + ai_histories[user_id]
+
     try:
         payload = json.dumps({
-            "system_instruction": {
-                "parts": [{"text": AI_SYSTEM_PROMPT}]
-            },
-            "contents": ai_histories[user_id],
-            "generationConfig": {
-                "maxOutputTokens": 800,
-                "temperature": 0.7,
-            },
+            "model": "llama-3.3-70b-versatile",
+            "messages": messages,
+            "max_tokens": 800,
+            "temperature": 0.7,
         }).encode("utf-8")
 
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-        )
-
         req = urllib.request.Request(
-            url,
+            "https://api.groq.com/openai/v1/chat/completions",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type":  "application/json",
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+            },
             method="POST",
         )
 
-        logger.info(f"Gemini запрос от {user_id}: {user_message[:50]}")
+        logger.info(f"Groq запрос от {user_id}: {user_message[:50]}")
 
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
-        reply = data["candidates"][0]["content"]["parts"][0]["text"]
-        logger.info(f"Gemini ответ получен для {user_id}")
+        reply = data["choices"][0]["message"]["content"]
+        logger.info(f"Groq ответ получен для {user_id}")
 
         # Сохраняем ответ в историю
         ai_histories[user_id].append({
-            "role": "model",
-            "parts": [{"text": reply}]
+            "role": "assistant",
+            "content": reply,
         })
 
         return reply
 
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="ignore")
-        logger.error(f"Gemini HTTP {e.code} BODY: {body}")
+        logger.error(f"Groq HTTP {e.code} BODY: {body}")
         try:
             err_msg = json.loads(body).get("error", {}).get("message", body)
         except Exception:
             err_msg = body[:200]
-        logger.error(f"Gemini детали ошибки: {err_msg}")
+        logger.error(f"Groq детали ошибки: {err_msg}")
         return (
             f"😔 Ошибка ИИ ({e.code}): {err_msg[:120]}\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
     except urllib.error.URLError as e:
-        logger.error(f"Gemini URLError: {e.reason}")
+        logger.error(f"Groq URLError: {e.reason}")
         return (
             f"😔 Нет связи с ИИ-сервером.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
     except Exception as e:
-        logger.error(f"Gemini неизвестная ошибка: {e}\n{traceback.format_exc()}")
+        logger.error(f"Groq неизвестная ошибка: {e}\n{traceback.format_exc()}")
         return (
             f"😔 Не смог получить ответ от ИИ.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
@@ -1657,7 +1654,7 @@ print("=" * 55)
 print("🚀  ЗАПУСК БОТА v4.0")
 print(f"📁  Заказы:  {ORDERS_PATH}")
 print(f"👤  Admin:   {ADMIN_CHAT_ID}")
-print(f"🤖  AI:      {'✅ Gemini включён' if GEMINI_API_KEY else '❌ GEMINI_API_KEY не задан'}")
+print(f"🤖  AI:      {'✅ Groq включён' if GROQ_API_KEY else '❌ GROQ_API_KEY не задан'}")
 print("=" * 55)
 
 bot        = telegram.Bot(token=TOKEN)

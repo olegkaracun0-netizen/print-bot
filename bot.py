@@ -3,7 +3,7 @@
 
 """
 Telegram бот для печати фото и документов
-v4.0 — новые цены, ИИ-ассистент, красивый дизайн
+v5.0 — клиентская база, доставка, повтор заказа, /myorders
 """
 
 import os
@@ -36,7 +36,7 @@ if not TOKEN:
     print("❌ ОШИБКА: TOKEN не задан!")
     sys.exit(1)
 
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")   # для ИИ-ассистента (бесплатно)
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 
 ADMIN_CHAT_ID = 483613049
 
@@ -47,7 +47,6 @@ if not RENDER_URL:
 
 PORT             = int(os.environ.get("PORT", 10000))
 CONTACT_PHONE    = "89219805705"
-DELIVERY_OPTIONS = "Самовывоз СПб, СДЭК, Яндекс Доставка"
 
 ORDERS_FOLDER = "заказы"
 ORDERS_PATH   = os.path.join(os.path.dirname(os.path.abspath(__file__)), ORDERS_FOLDER)
@@ -59,7 +58,8 @@ except Exception as e:
     print(f"❌ Ошибка создания папки: {e}")
     sys.exit(1)
 
-ORDERS_DB_FILE = os.path.join(ORDERS_PATH, "orders_history.json")
+ORDERS_DB_FILE  = os.path.join(ORDERS_PATH, "orders_history.json")
+CLIENTS_DB_FILE = os.path.join(ORDERS_PATH, "clients.json")
 
 ORDER_STATUSES = {
     "new":        "🆕 Новый",
@@ -71,24 +71,33 @@ ORDER_STATUSES = {
     "cancelled":  "❌ Отменён",
 }
 
-# ══════════════════════════════════════════
-#  ПРАЙС-ЛИСТ (новые цены)
-# ══════════════════════════════════════════
+# Варианты доставки
+DELIVERY_METHODS = {
+    "pickup":  ("🏪 Самовывоз СПб",       "Бесплатно"),
+    "cdek":    ("📦 СДЭК",                "По тарифу СДЭК"),
+    "yandex":  ("🚕 Яндекс Доставка",     "По тарифу Яндекс"),
+}
 
-# Документы A4, 80 г/м²
+# Скидки постоянным клиентам
+LOYALTY_DISCOUNTS = {
+    5:  5,   # от 5 заказов  — скидка 5%
+    10: 10,  # от 10 заказов — скидка 10%
+    20: 15,  # от 20 заказов — скидка 15%
+}
+
+# ══════════════════════════════════════════
+#  ПРАЙС-ЛИСТ
+# ══════════════════════════════════════════
 DOC_PRICES = {
-    "bw":    {(1, 19): 20,  (20, 49): 20,  (50, 99): 15,  (100, 299): 10, (300, float("inf")): 8},
-    "color": {(1, 19): 40,  (20, 49): 40,  (50, 99): 30,  (100, 299): 20, (300, float("inf")): 16},
+    "bw":    {(1,19):20,  (20,49):20,  (50,99):15,  (100,299):10, (300,float("inf")):8},
+    "color": {(1,19):40,  (20,49):40,  (50,99):30,  (100,299):20, (300,float("inf")):16},
 }
-
-# Фото
 PHOTO_PRICES = {
-    "small":  {(1, 8): 30,   (9, 49): 30,   (50, 99): 25,  (100, float("inf")): 15},
-    "medium": {(1, 8): 60,   (9, 49): 60,   (50, 99): 50,  (100, float("inf")): 27},
-    "large":  {(1, 3): 170,  (4, 19): 170,  (20, 49): 150, (50, float("inf")): 110},
+    "small":  {(1,8):30,  (9,49):30,  (50,99):25,  (100,float("inf")):15},
+    "medium": {(1,8):60,  (9,49):60,  (50,99):50,  (100,float("inf")):27},
+    "large":  {(1,3):170, (4,19):170, (20,49):150, (50,float("inf")):110},
 }
 
-# Текстовый прайс для /prices и ИИ-ассистента
 PRICE_TEXT = """📌 *Наши услуги и цены*
 
 💰 *Печать документов* (А4, бумага 80 г/м²)
@@ -133,31 +142,28 @@ PRICE_TEXT = """📌 *Наши услуги и цены*
 
 💛 При больших заказах — специальные условия!"""
 
-# Системный промпт для ИИ-ассистента
 AI_SYSTEM_PROMPT = f"""Ты вежливый и дружелюбный ИИ-ассистент сервиса печати фото и документов.
 Ты помогаешь клиентам отвечать на вопросы о ценах, услугах, сроках и процессе заказа.
 Отвечай кратко и по делу. Используй эмодзи. Отвечай на русском языке.
 
 Информация о сервисе:
 - Телефон: {CONTACT_PHONE}
-- Доставка: {DELIVERY_OPTIONS}
+- Доставка: Самовывоз СПб (бесплатно), СДЭК, Яндекс Доставка
 - Принимаем файлы: JPG, PNG, PDF, DOC, DOCX
 - Срок выполнения: 1-3 дня в зависимости от объёма
 
-Прайс-лист:
-ДОКУМЕНТЫ (А4, 80г/м²):
-Чёрно-белая: от 20л — 20₽/л, от 50л — 15₽/л, от 100л — 10₽/л, от 300л — 8₽/л
-Цветная: от 20л — 40₽/л, от 50л — 30₽/л, от 100л — 20₽/л, от 300л — 16₽/л
-
-ФОТО:
-Малый (10×15/A6): от 9шт — 30₽, от 50 — 25₽, от 100 — 20₽, от 101 — 15₽
-Средний (13×18): от 9шт — 60₽, от 50 — 50₽, от 100 — 35₽, от 101 — 27₽
-Большой (A4): от 4шт — 170₽, от 20 — 150₽, от 50 — 130₽, от 51 — 110₽
+Прайс:
+Документы Ч/Б: от 20л — 20₽, от 50 — 15₽, от 100 — 10₽, от 300 — 8₽
+Документы Цвет: от 20л — 40₽, от 50 — 30₽, от 100 — 20₽, от 300 — 16₽
+Фото малые (10×15): от 9 — 30₽, от 50 — 25₽, от 100 — 20₽, от 101 — 15₽
+Фото средние (13×18): от 9 — 60₽, от 50 — 50₽, от 100 — 35₽, от 101 — 27₽
+Фото большие (A4): от 4 — 170₽, от 20 — 150₽, от 50 — 130₽, от 51 — 110₽
 Копии/сканы: от 3₽/шт
 
-Как сделать заказ: просто отправить файл в бот, выбрать формат и количество.
-При вопросах вне темы печати — вежливо переведи разговор обратно на услуги сервиса.
-Никогда не придумывай цены — используй только данные выше."""
+Скидки постоянным клиентам: от 5 заказов — 5%, от 10 — 10%, от 20 — 15%
+
+При вопросах вне темы — вежливо переведи на услуги сервиса.
+Никогда не придумывай цены."""
 
 # ══════════════════════════════════════════
 #  ЛОГИРОВАНИЕ
@@ -177,23 +183,25 @@ logger = logging.getLogger(__name__)
     SELECTING_PHOTO_FORMAT,
     SELECTING_DOC_TYPE,
     ENTERING_QUANTITY,
+    SELECTING_DELIVERY,
     CONFIRMING_ORDER,
     AI_CHAT,
-) = range(6)
+    ENTERING_ADDRESS,
+) = range(8)
 
 # ══════════════════════════════════════════
 #  ГЛОБАЛЬНЫЕ ОБЪЕКТЫ
 # ══════════════════════════════════════════
-user_sessions  = {}
-ai_histories   = {}   # история диалога с ИИ для каждого юзера
-media_groups   = {}
-group_timers   = {}
+user_sessions = {}
+ai_histories  = {}
+media_groups  = {}
+group_timers  = {}
 updater    = None
 dispatcher = None
 bot        = None
 
 # ══════════════════════════════════════════
-#  ЭМОДЗИ-КОНСТАНТЫ
+#  ЭМОДЗИ
 # ══════════════════════════════════════════
 SPARK  = "✨"
 FIRE   = "🔥"
@@ -210,6 +218,8 @@ BELL   = "🔔"
 HEART  = "💙"
 BOT_IC = "🤖"
 BRAIN  = "🧠"
+TRUCK  = "🚚"
+CROWN  = "👑"
 
 def _sep():
     return "· · · · · · · · · · · · · · ·"
@@ -236,8 +246,8 @@ def extract_number(text):
     return int(nums[0]) if nums else None
 
 def format_size(b):
-    if b < 1024:        return f"{b} B"
-    elif b < 1024**2:   return f"{b/1024:.1f} KB"
+    if b < 1024:       return f"{b} B"
+    elif b < 1024**2:  return f"{b/1024:.1f} KB"
     return f"{b/1024**2:.1f} MB"
 
 def count_items(file_path, file_name):
@@ -273,25 +283,99 @@ def download_file(file_obj, file_name):
         return None, None
 
 # ══════════════════════════════════════════
-#  ИИ-АССИСТЕНТ (OpenRouter — есть бесплатные модели)
+#  КЛИЕНТСКАЯ БАЗА
+# ══════════════════════════════════════════
+def load_clients():
+    try:
+        if os.path.exists(CLIENTS_DB_FILE):
+            with open(CLIENTS_DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.error(f"Ошибка загрузки клиентов: {e}")
+    return {}
+
+def save_clients(clients):
+    try:
+        with open(CLIENTS_DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(clients, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Ошибка сохранения клиентов: {e}")
+
+def get_client(user_id):
+    clients = load_clients()
+    return clients.get(str(user_id))
+
+def update_client(user_id, user_info, order_data=None):
+    """Создаёт или обновляет запись клиента."""
+    clients = load_clients()
+    uid     = str(user_id)
+    if uid not in clients:
+        clients[uid] = {
+            "user_id":    user_id,
+            "username":   user_info.get("username", ""),
+            "first_name": user_info.get("first_name", ""),
+            "orders":     [],
+            "total_spent": 0,
+            "joined":     datetime.now().isoformat(),
+            "last_address": "",
+            "last_delivery": "pickup",
+        }
+    # обновляем данные
+    clients[uid]["username"]   = user_info.get("username", clients[uid]["username"])
+    clients[uid]["first_name"] = user_info.get("first_name", clients[uid]["first_name"])
+    clients[uid]["last_seen"]  = datetime.now().isoformat()
+
+    if order_data:
+        clients[uid]["orders"].append({
+            "order_id":  order_data.get("order_id"),
+            "date":      datetime.now().isoformat(),
+            "total":     order_data.get("total", 0),
+            "type":      order_data.get("type"),
+            "quantity":  order_data.get("quantity"),
+            "delivery":  order_data.get("delivery_method", "pickup"),
+        })
+        clients[uid]["total_spent"] += order_data.get("total", 0)
+        if order_data.get("address"):
+            clients[uid]["last_address"]  = order_data["address"]
+        if order_data.get("delivery_method"):
+            clients[uid]["last_delivery"] = order_data["delivery_method"]
+
+    save_clients(clients)
+    return clients[uid]
+
+def get_loyalty_discount(user_id):
+    """Возвращает процент скидки по количеству заказов."""
+    client = get_client(user_id)
+    if not client:
+        return 0
+    count = len(client.get("orders", []))
+    discount = 0
+    for threshold, pct in sorted(LOYALTY_DISCOUNTS.items()):
+        if count >= threshold:
+            discount = pct
+    return discount
+
+def get_last_order(user_id):
+    """Возвращает последний заказ клиента для быстрого повтора."""
+    client = get_client(user_id)
+    if not client or not client.get("orders"):
+        return None
+    return client["orders"][-1]
+
+# ══════════════════════════════════════════
+#  ИИ-АССИСТЕНТ (OpenRouter — бесплатно)
 # ══════════════════════════════════════════
 def ask_ai(user_id, user_message):
-    """Отправляет сообщение через OpenRouter API и возвращает ответ."""
     if not OPENROUTER_API_KEY:
-        logger.error("AI: OPENROUTER_API_KEY не задан!")
         return (
             f"{BOT_IC} ИИ-ассистент не настроен.\n\n"
-            f"Администратору нужно добавить OPENROUTER_API_KEY в переменные окружения.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
 
     if user_id not in ai_histories:
         ai_histories[user_id] = []
 
-    ai_histories[user_id].append({
-        "role": "user",
-        "content": user_message,
-    })
+    ai_histories[user_id].append({"role": "user", "content": user_message})
 
     if len(ai_histories[user_id]) > 20:
         ai_histories[user_id] = ai_histories[user_id][-20:]
@@ -300,9 +384,9 @@ def ask_ai(user_id, user_message):
 
     try:
         payload = json.dumps({
-            "model": "openrouter/free",
-            "messages": messages,
-            "max_tokens": 800,
+            "model":       "openrouter/free",
+            "messages":    messages,
+            "max_tokens":  800,
             "temperature": 0.7,
         }).encode("utf-8")
 
@@ -318,25 +402,15 @@ def ask_ai(user_id, user_message):
             method="POST",
         )
 
-        logger.info(f"OpenRouter запрос от {user_id}: {user_message[:50]}")
-
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
-        # Проверяем наличие ответа
         choices = data.get("choices", [])
         if not choices:
-            logger.error(f"OpenRouter пустой ответ: {data}")
             return f"😔 ИИ не ответил. Попробуй ещё раз!\n\nПо вопросам: {CONTACT_PHONE}"
 
         reply = choices[0]["message"]["content"]
-        logger.info(f"OpenRouter ответ получен для {user_id}")
-
-        ai_histories[user_id].append({
-            "role": "assistant",
-            "content": reply,
-        })
-
+        ai_histories[user_id].append({"role": "assistant", "content": reply})
         return reply
 
     except urllib.error.HTTPError as e:
@@ -346,23 +420,10 @@ def ask_ai(user_id, user_message):
             err_msg = json.loads(body).get("error", {}).get("message", body)
         except Exception:
             err_msg = body[:200]
-        logger.error(f"OpenRouter детали ошибки: {err_msg}")
-        return (
-            f"😔 Ошибка ИИ ({e.code}): {err_msg[:120]}\n\n"
-            f"По вопросам пишите: {CONTACT_PHONE}"
-        )
-    except urllib.error.URLError as e:
-        logger.error(f"OpenRouter URLError: {e.reason}")
-        return (
-            f"😔 Нет связи с ИИ-сервером.\n\n"
-            f"По вопросам пишите: {CONTACT_PHONE}"
-        )
+        return f"😔 Ошибка ИИ ({e.code}). По вопросам: {CONTACT_PHONE}"
     except Exception as e:
         logger.error(f"OpenRouter ошибка: {e}\n{traceback.format_exc()}")
-        return (
-            f"😔 Не смог получить ответ от ИИ.\n\n"
-            f"По вопросам пишите: {CONTACT_PHONE}"
-        )
+        return f"😔 Нет ответа от ИИ. По вопросам: {CONTACT_PHONE}"
 
 # ══════════════════════════════════════════
 #  ИСТОРИЯ ЗАКАЗОВ
@@ -401,16 +462,13 @@ def update_order_status(order_id, new_status):
         if updated:
             with open(ORDERS_DB_FILE, "w", encoding="utf-8") as f:
                 json.dump(history, f, ensure_ascii=False, indent=2)
-
             info = os.path.join(ORDERS_PATH, order_id, "информация_о_заказе.txt")
             if os.path.exists(info):
                 with open(info, "r", encoding="utf-8") as f:
                     txt = f.read()
-                txt = re.sub(r"Статус:.*\n",
-                             f"Статус: {get_status_display(new_status)}\n", txt)
+                txt = re.sub(r"Статус:.*\n", f"Статус: {get_status_display(new_status)}\n", txt)
                 with open(info, "w", encoding="utf-8") as f:
                     f.write(txt)
-
             if user_id and bot:
                 try:
                     bot.send_message(
@@ -450,6 +508,11 @@ def save_order_to_folder(user_id, username, order_data, files_info):
         tp = sum(x["items"] for x in ph)
         td = sum(x["items"] for x in dc)
 
+        delivery_label = DELIVERY_METHODS.get(
+            order_data.get("delivery_method", "pickup"), ("Самовывоз", "")
+        )[0]
+        address = order_data.get("address", "")
+
         info_path = os.path.join(folder, "информация_о_заказе.txt")
         with open(info_path, "w", encoding="utf-8") as f:
             f.write(f"ЗАКАЗ ОТ {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n")
@@ -460,16 +523,22 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             f.write(f"Статус: {get_status_display('new')}\n\n")
             if order_data["type"] == "photo":
                 fn = {"small": "Малый (A6/10×15)", "medium": "Средний (13×18)", "large": "Большой (A4)"}
-                f.write(f"Тип: Фото\nФормат: {fn[order_data['format']]}\n")
+                f.write(f"Тип: Фото\nФормат: {fn.get(order_data['format'], '')}\n")
             else:
                 cn = {"bw": "Черно-белая", "color": "Цветная"}
-                f.write(f"Тип: Документы\nПечать: {cn[order_data['color']]}\n")
+                f.write(f"Тип: Документы\nПечать: {cn.get(order_data['color'], '')}\n")
             f.write(f"Копий: {order_data['quantity']}\n\n")
             if ph:
                 f.write(f"ФОТО: {len(ph)} файлов, {tp} шт. → к печати: {tp * order_data['quantity']}\n\n")
             if dc:
                 f.write(f"ДОКУМЕНТЫ: {len(dc)} файлов, {td} стр. → к печати: {td * order_data['quantity']}\n\n")
-            f.write(f"ИТОГО: {order_data['total']} руб.\n")
+            f.write(f"ДОСТАВКА: {delivery_label}\n")
+            if address:
+                f.write(f"Адрес: {address}\n")
+            disc = order_data.get("discount", 0)
+            if disc:
+                f.write(f"Скидка: {disc}%\n")
+            f.write(f"\nИТОГО: {order_data['total']} руб.\n")
             f.write(f"Срок: {order_data['delivery']}\n\nФАЙЛЫ:\n")
             for i, fi in enumerate(files_info, 1):
                 ico  = "📸" if fi["type"] == "photo" else "📄"
@@ -478,15 +547,30 @@ def save_order_to_folder(user_id, username, order_data, files_info):
             f.write(f"\nВсего файлов: {len(files_info)}")
 
         save_history({
-            "order_id": oid, "folder": folder,
-            "user_id": user_id, "username": username,
-            "user_name": order_data["user_info"]["first_name"],
-            "date": datetime.now().isoformat(),
-            "type": order_data["type"], "quantity": order_data["quantity"],
+            "order_id":     oid, "folder": folder,
+            "user_id":      user_id, "username": username,
+            "user_name":    order_data["user_info"]["first_name"],
+            "date":         datetime.now().isoformat(),
+            "type":         order_data["type"], "quantity": order_data["quantity"],
             "total_photos": tp, "total_pages": td,
-            "total_price": order_data["total"], "delivery": order_data["delivery"],
-            "status": "new",
+            "total_price":  order_data["total"],
+            "delivery":     order_data["delivery"],
+            "delivery_method": order_data.get("delivery_method", "pickup"),
+            "address":      address,
+            "discount":     order_data.get("discount", 0),
+            "status":       "new",
         })
+
+        # обновляем клиентскую базу
+        update_client(user_id, order_data["user_info"], {
+            "order_id":        oid,
+            "total":           order_data["total"],
+            "type":            order_data["type"],
+            "quantity":        order_data["quantity"],
+            "delivery_method": order_data.get("delivery_method", "pickup"),
+            "address":         address,
+        })
+
         return True, oid, folder
     except Exception as e:
         logger.error(f"save_order_to_folder: {e}\n{traceback.format_exc()}")
@@ -505,14 +589,17 @@ def notify_admin(order_data, order_id):
 
         if order_data["type"] == "photo":
             fn  = {"small": "10×15/A6", "medium": "13×18", "large": "A4"}
-            typ = f"🖼 Фото — формат {fn[order_data['format']]}"
+            typ = f"🖼 Фото — {fn.get(order_data['format'], '')}"
         else:
             cn  = {"bw": "⚫️ Ч/Б", "color": "🌈 Цвет"}
-            typ = f"📄 Документы — {cn[order_data['color']]}"
+            typ = f"📄 Документы — {cn.get(order_data['color'], '')}"
+
+        delivery_label = DELIVERY_METHODS.get(
+            order_data.get("delivery_method", "pickup"), ("Самовывоз", "")
+        )[0]
 
         lines = [
-            f"{BELL} *НОВЫЙ ЗАКАЗ*",
-            "",
+            f"{BELL} *НОВЫЙ ЗАКАЗ*", "",
             f"👤 *{order_data['user_info']['first_name']}*  @{order_data['user_info']['username']}",
             f"🆔 `{order_data['user_info']['user_id']}`",
             "",
@@ -521,6 +608,18 @@ def notify_admin(order_data, order_id):
         ]
         if ph: lines.append(f"📸 Фото: {len(ph)} файл(а) → {tp} шт.")
         if dc: lines.append(f"📄 Документы: {len(dc)} файл(а) → {td} стр.")
+
+        disc = order_data.get("discount", 0)
+        if disc:
+            lines.append(f"🎁 Скидка клиента: *{disc}%*")
+
+        lines += [
+            "",
+            f"{TRUCK} Доставка: *{delivery_label}*",
+        ]
+        if order_data.get("address"):
+            lines.append(f"📍 Адрес: {order_data['address']}")
+
         lines += [
             "",
             f"{MONEY} *{order_data['total']} руб.*",
@@ -530,8 +629,7 @@ def notify_admin(order_data, order_id):
         ]
         if bot:
             bot.send_message(chat_id=ADMIN_CHAT_ID,
-                             text="\n".join(lines),
-                             parse_mode="Markdown")
+                             text="\n".join(lines), parse_mode="Markdown")
     except Exception as e:
         logger.error(f"notify_admin: {e}")
 
@@ -549,6 +647,11 @@ def _init_session(user_id, user):
             "last_name":  user.last_name or "",
         },
     }
+    # Обновляем клиентскую базу при каждом обращении
+    update_client(user_id, {
+        "username":   user.username or user.first_name,
+        "first_name": user.first_name,
+    })
 
 def _cleanup(user_id):
     if user_id in user_sessions:
@@ -559,22 +662,29 @@ def _cleanup(user_id):
 # ══════════════════════════════════════════
 #  КЛАВИАТУРЫ
 # ══════════════════════════════════════════
-def _kbd_main():
-    """Главное меню — показывается после /start."""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{CAMERA}  Заказать печать",    callback_data="start_order")],
-        [InlineKeyboardButton(f"{MONEY}  Цены и услуги",       callback_data="show_prices")],
-        [InlineKeyboardButton(f"{BOT_IC}  Задать вопрос ИИ",   callback_data="start_ai")],
-        [InlineKeyboardButton(f"📞  Контакты",                  callback_data="show_contacts")],
-    ])
+def _kbd_main(user_id=None):
+    last = get_last_order(user_id) if user_id else None
+    rows = [
+        [InlineKeyboardButton(f"{CAMERA}  Заказать печать",   callback_data="start_order")],
+        [InlineKeyboardButton(f"{MONEY}  Цены и услуги",      callback_data="show_prices")],
+        [InlineKeyboardButton(f"{BOT_IC}  Задать вопрос ИИ",  callback_data="start_ai")],
+        [InlineKeyboardButton(f"📋  Мои заказы",              callback_data="my_orders")],
+        [InlineKeyboardButton(f"📞  Контакты",                callback_data="show_contacts")],
+    ]
+    if last:
+        rows.insert(1, [InlineKeyboardButton(
+            f"🔄  Повторить заказ",
+            callback_data="repeat_order"
+        )])
+    return InlineKeyboardMarkup(rows)
 
 def _kbd_format(doc_count):
     if doc_count > 0:
         return InlineKeyboardMarkup([
-            [InlineKeyboardButton("⚫️  Чёрно-белая печать",  callback_data="doc_bw")],
-            [InlineKeyboardButton("🌈  Цветная печать",       callback_data="doc_color")],
-            [InlineKeyboardButton("➕  Добавить ещё файлы",   callback_data="add_more")],
-            [InlineKeyboardButton("🗑  Отменить заказ",       callback_data="cancel")],
+            [InlineKeyboardButton("⚫️  Чёрно-белая печать", callback_data="doc_bw")],
+            [InlineKeyboardButton("🌈  Цветная печать",      callback_data="doc_color")],
+            [InlineKeyboardButton("➕  Добавить ещё файлы",  callback_data="add_more")],
+            [InlineKeyboardButton("🗑  Отменить заказ",      callback_data="cancel")],
         ])
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔹  Малый  —  10×15 / A6",      callback_data="photo_small")],
@@ -604,25 +714,41 @@ def _kbd_qty():
         [InlineKeyboardButton("🗑  Отменить заказ",    callback_data="cancel")],
     ])
 
+def _kbd_delivery(user_id=None):
+    """Клавиатура выбора доставки с подсказкой о прошлом выборе."""
+    client      = get_client(user_id) if user_id else None
+    last_method = client.get("last_delivery", "pickup") if client else "pickup"
+    rows = []
+    for key, (label, price) in DELIVERY_METHODS.items():
+        mark = " ✅" if key == last_method else ""
+        rows.append([InlineKeyboardButton(
+            f"{label} — {price}{mark}",
+            callback_data=f"delivery_{key}"
+        )])
+    rows.append([InlineKeyboardButton("🗑  Отменить заказ", callback_data="cancel")])
+    return InlineKeyboardMarkup(rows)
+
 def _kbd_confirm():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"{CHECK}  Да, оформить заказ!", callback_data="confirm")],
         [InlineKeyboardButton("🗑  Нет, отменить",             callback_data="cancel")],
     ])
 
-def _kbd_new():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{ROCKET}  Новый заказ",       callback_data="new_order")],
-        [InlineKeyboardButton(f"{BOT_IC}  Задать вопрос ИИ",  callback_data="start_ai")],
-    ])
+def _kbd_new(user_id=None):
+    rows = [
+        [InlineKeyboardButton(f"{ROCKET}  Новый заказ",      callback_data="new_order")],
+        [InlineKeyboardButton(f"{BOT_IC}  Задать вопрос ИИ", callback_data="start_ai")],
+    ]
+    if user_id and get_last_order(user_id):
+        rows.insert(0, [InlineKeyboardButton("🔄  Повторить заказ", callback_data="repeat_order")])
+    return InlineKeyboardMarkup(rows)
 
 def _kbd_ai():
-    """Клавиатура в режиме ИИ-чата."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(f"{CAMERA}  Сделать заказ",      callback_data="start_order")],
-        [InlineKeyboardButton(f"{MONEY}  Показать цены",        callback_data="show_prices")],
-        [InlineKeyboardButton("🔄  Сбросить диалог с ИИ",       callback_data="reset_ai")],
-        [InlineKeyboardButton("🏠  Главное меню",               callback_data="main_menu")],
+        [InlineKeyboardButton(f"{CAMERA}  Сделать заказ", callback_data="start_order")],
+        [InlineKeyboardButton(f"{MONEY}  Показать цены",  callback_data="show_prices")],
+        [InlineKeyboardButton("🔄  Сбросить диалог",      callback_data="reset_ai")],
+        [InlineKeyboardButton("🏠  Главное меню",          callback_data="main_menu")],
     ])
 
 # ══════════════════════════════════════════
@@ -637,7 +763,6 @@ def handle_media_group(update, context):
     uid  = update.effective_user.id
     mgid = update.message.media_group_id
     media_groups.setdefault(uid, {}).setdefault(mgid, []).append(update.message)
-
     key = f"{uid}_{mgid}"
     if key in group_timers:
         group_timers[key].cancel()
@@ -760,24 +885,17 @@ def process_single_file(update, context):
 def _send_format_menu(uid, context, ph_cnt, doc_cnt, tot_ph, tot_pg, reply_fn=None):
     total = ph_cnt + doc_cnt
     lines = [
-        f"{SPARK}{SPARK}{SPARK}",
-        "",
-        f"{CHECK} *{'Файлы загружены' if total > 1 else 'Файл загружен'}!*",
-        "",
+        f"{SPARK}{SPARK}{SPARK}", "",
+        f"{CHECK} *{'Файлы загружены' if total > 1 else 'Файл загружен'}!*", "",
     ]
     if ph_cnt:  lines.append(f"{CAMERA} Фото-файлов — *{ph_cnt}*")
     if doc_cnt: lines.append(f"{DOC} Документов — *{doc_cnt}*")
     if tot_ph:  lines.append(f"🖼 Всего фото — *{tot_ph} шт.*")
     if tot_pg:  lines.append(f"📃 Всего страниц — *{tot_pg} шт.*")
-    lines += [
-        "",
-        _sep(),
-        "",
-        f"{'🖨 *Выбери тип печати:*' if doc_cnt else '🖼 *Выбери формат фото:*'}",
-    ]
+    lines += ["", _sep(), "",
+              f"{'🖨 *Выбери тип печати:*' if doc_cnt else '🖼 *Выбери формат фото:*'}"]
     text = "\n".join(lines)
     kbd  = _kbd_format(doc_cnt)
-
     if reply_fn:
         reply_fn(text, reply_markup=kbd, parse_mode="Markdown")
     else:
@@ -790,16 +908,17 @@ def _send_format_menu(uid, context, ph_cnt, doc_cnt, tot_ph, tot_pg, reply_fn=No
 def cancel_order(uid, query=None, context=None):
     _cleanup(uid)
     text = f"🗑 *Заказ отменён*\n\nВсе файлы удалены 🧹\n\nЧем могу помочь?"
+    kbd  = _kbd_new(uid)
     if query:
         try:
-            query.edit_message_text(text, reply_markup=_kbd_new(), parse_mode="Markdown")
+            query.edit_message_text(text, reply_markup=kbd, parse_mode="Markdown")
         except Exception:
             if context:
                 context.bot.send_message(chat_id=uid, text=text,
-                                         reply_markup=_kbd_new(), parse_mode="Markdown")
+                                         reply_markup=kbd, parse_mode="Markdown")
     elif context:
         context.bot.send_message(chat_id=uid, text=text,
-                                 reply_markup=_kbd_new(), parse_mode="Markdown")
+                                 reply_markup=kbd, parse_mode="Markdown")
     return WAITING_FOR_FILE
 
 # ══════════════════════════════════════════
@@ -829,8 +948,7 @@ def _do_calc(quantity, uid):
             lines += [
                 f"{CAMERA} *Файл {i}*  `{f['name'][:38]}`",
                 f"   {f['items']} фото × {quantity} коп. = *{f['items'] * quantity} шт.*",
-                f"   {price_per} руб/коп. → *{ftot} руб.*",
-                "",
+                f"   {price_per} руб/коп. → *{ftot} руб.*", "",
             ]
         else:
             pd     = DOC_PRICES[s["color"]]
@@ -842,9 +960,17 @@ def _do_calc(quantity, uid):
             lines += [
                 f"{DOC} *Файл {i}*  `{f['name'][:38]}`",
                 f"   {f['items']} стр. × {quantity} коп. = *{fitems} стр.*",
-                f"   {ppp} руб/стр. → *{ftot} руб.*",
-                "",
+                f"   {ppp} руб/стр. → *{ftot} руб.*", "",
             ]
+
+    # Скидка постоянному клиенту
+    discount = get_loyalty_discount(uid)
+    s["discount"] = discount
+    if discount:
+        old_total = total
+        total     = int(total * (100 - discount) / 100)
+        lines.append(f"🎁 *Скидка {discount}%:*  ~~{old_total}~~ → *{total} руб.*")
+        lines.append("")
 
     delivery = estimate_delivery(tot_ph + tot_pg)
     s["total"]        = total
@@ -857,12 +983,9 @@ def _do_calc(quantity, uid):
     if tot_ph: lines.append(f"{CAMERA} Фото к печати: *{tot_ph} шт.*")
     if tot_pg: lines.append(f"📃 Страниц к печати: *{tot_pg} шт.*")
     lines += [
-        f"{CLOCK} Срок: *{delivery}*",
-        "",
-        _sep(),
-        "",
-        f"{MONEY}{MONEY} *ИТОГО: {total} руб.* {MONEY}{MONEY}",
-        "",
+        f"{CLOCK} Срок: *{delivery}*", "",
+        _sep(), "",
+        f"{MONEY}{MONEY} *ИТОГО: {total} руб.* {MONEY}{MONEY}", "",
         f"_{STAR} Всё верно? Подтверждаем?_",
     ]
     return "\n".join(lines)
@@ -875,77 +998,143 @@ def start(update, context):
     uid  = user.id
     _cleanup(uid)
 
+    client   = get_client(uid)
+    orders_n = len(client.get("orders", [])) if client else 0
+    disc     = get_loyalty_discount(uid)
+
+    greeting = f"👋 *Привет, {user.first_name}!*"
+    if orders_n > 0:
+        greeting = f"👋 *С возвращением, {user.first_name}!*\n🛍 У тебя уже *{orders_n}* заказ(ов)"
+    if disc:
+        greeting += f"\n{CROWN} Твоя скидка: *{disc}%*"
+
     text = (
-        f"👋 *Привет, {user.first_name}!*\n\n"
+        f"{FIRE}{PARTY}{FIRE}\n\n"
+        f"{greeting}\n\n"
         f"Вы на канале быстрой и качественной печати {CAMERA}{DOC}\n\n"
         f"Мы работаем для тех, кому важно:\n"
         f"✔ Чёткое качество\n"
         f"✔ Быстрое выполнение\n"
         f"✔ Удобная отправка файлов онлайн\n"
         f"✔ Адекватные цены\n\n"
-        f"Что можно заказать у нас:\n"
-        f"{CAMERA} Печать фотографий (разные форматы)\n"
-        f"📑 Чёрно-белая и цветная печать документов\n"
+        f"Что можно заказать:\n"
+        f"{CAMERA} Печать фотографий\n"
+        f"📑 Ч/Б и цветная печать документов\n"
         f"📚 Курсовые, дипломы, рефераты\n"
         f"📂 Копии и сканирование\n\n"
         f"{_sep()}\n\n"
         f"Просто отправь файл — и я всё посчитаю {SPARK}\n"
         f"Или выбери действие ниже 👇"
     )
-    update.message.reply_text(text, reply_markup=_kbd_main(), parse_mode="Markdown")
+    update.message.reply_text(text, reply_markup=_kbd_main(uid), parse_mode="Markdown")
+    return WAITING_FOR_FILE
+
+def cmd_myorders(update, context):
+    uid    = update.effective_user.id
+    client = get_client(uid)
+    if not client or not client.get("orders"):
+        update.message.reply_text(
+            f"📋 *Мои заказы*\n\n"
+            f"У тебя пока нет заказов.\n\n"
+            f"Отправь файл чтобы сделать первый! {ROCKET}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(f"{CAMERA}  Сделать заказ", callback_data="start_order")]
+            ])
+        )
+        return WAITING_FOR_FILE
+
+    orders   = client["orders"]
+    disc     = get_loyalty_discount(uid)
+    spent    = client.get("total_spent", 0)
+    lines    = [
+        f"📋 *Мои заказы*", "",
+        f"👤 *{client['first_name']}*",
+        f"🛍 Всего заказов: *{len(orders)}*",
+        f"💸 Потрачено: *{spent} руб.*",
+    ]
+    if disc:
+        lines.append(f"{CROWN} Скидка: *{disc}%*")
+    lines += ["", _sep(), ""]
+
+    for o in reversed(orders[-5:]):  # последние 5
+        date   = o["date"][:10]
+        otype  = "🖼 Фото" if o["type"] == "photo" else "📄 Документы"
+        dmethod = DELIVERY_METHODS.get(o.get("delivery", "pickup"), ("Самовывоз",""))[0]
+        lines.append(f"🆔 `{o['order_id']}`")
+        lines.append(f"   {otype}  ×{o['quantity']}  —  *{o['total']} руб.*")
+        lines.append(f"   📅 {date}  {TRUCK} {dmethod}")
+        lines.append("")
+
+    if len(orders) > 5:
+        lines.append(f"_...и ещё {len(orders)-5} заказов_")
+
+    kbd = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄  Повторить последний", callback_data="repeat_order")],
+        [InlineKeyboardButton(f"{CAMERA}  Новый заказ",  callback_data="start_order")],
+        [InlineKeyboardButton("🏠  Главное меню",         callback_data="main_menu")],
+    ])
+    update.message.reply_text(
+        "\n".join(lines), parse_mode="Markdown", reply_markup=kbd
+    )
     return WAITING_FOR_FILE
 
 def cmd_prices(update, context):
-    update.message.reply_text(PRICE_TEXT, parse_mode="Markdown",
-                              reply_markup=InlineKeyboardMarkup([
-                                  [InlineKeyboardButton(f"{CAMERA}  Сделать заказ", callback_data="start_order")],
-                                  [InlineKeyboardButton(f"{BOT_IC}  Спросить ИИ",  callback_data="start_ai")],
-                              ]))
+    update.message.reply_text(
+        PRICE_TEXT, parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(f"{CAMERA}  Сделать заказ", callback_data="start_order")],
+            [InlineKeyboardButton(f"{BOT_IC}  Спросить ИИ",   callback_data="start_ai")],
+        ])
+    )
     return WAITING_FOR_FILE
 
 def cmd_ai(update, context):
-    uid = update.effective_user.id
     update.message.reply_text(
-        f"{BOT_IC}{BRAIN} *ИИ-ассистент готов к работе!*\n\n"
-        f"Я отвечу на любые вопросы о ценах, услугах и сроках.\n\n"
-        f"Просто напиши свой вопрос прямо сейчас 💬",
+        f"{BOT_IC}{BRAIN} *ИИ-ассистент готов!*\n\n"
+        f"Задай любой вопрос о ценах, услугах и сроках 💬",
         parse_mode="Markdown",
         reply_markup=_kbd_ai(),
     )
     return AI_CHAT
 
 def cmd_help(update, context):
+    uid  = update.effective_user.id
+    disc = get_loyalty_discount(uid)
     text = (
         f"{SPARK} *Как пользоваться ботом:*\n\n"
         f"📎 Отправь файл (JPG, PNG, PDF, DOC, DOCX)\n"
         f"🖼 Выбери формат и количество копий\n"
+        f"{TRUCK} Выбери способ доставки\n"
         f"{CHECK} Подтверди заказ\n\n"
         f"{_sep()}\n\n"
         f"*Команды:*\n"
         f"/start — Главное меню\n"
+        f"/myorders — Мои заказы\n"
         f"/prices — Цены на услуги\n"
         f"/ai — ИИ-ассистент\n"
         f"/help — Справка\n\n"
         f"{_sep()}\n\n"
-        f"📞 *Телефон:* {CONTACT_PHONE}\n"
-        f"🚚 *Доставка:* {DELIVERY_OPTIONS}"
+        f"🎁 *Скидки постоянным клиентам:*\n"
+        f"от 5 заказов — 5%\n"
+        f"от 10 заказов — 10%\n"
+        f"от 20 заказов — 15%\n"
     )
-    update.message.reply_text(text, parse_mode="Markdown", reply_markup=_kbd_main())
+    if disc:
+        text += f"\n{CROWN} *Твоя текущая скидка: {disc}%*\n"
+    text += f"\n{_sep()}\n\n📞 *Телефон:* {CONTACT_PHONE}"
+    update.message.reply_text(text, parse_mode="Markdown",
+                               reply_markup=_kbd_main(uid))
     return WAITING_FOR_FILE
 
 # ══════════════════════════════════════════
-#  ИИ-ЧАТ HANDLER
+#  ИИ-ЧАТ
 # ══════════════════════════════════════════
 def ai_chat_handler(update, context):
-    """Обрабатывает текстовые сообщения в режиме AI_CHAT."""
     uid     = update.effective_user.id
     message = update.message.text
-
-    # Показываем "печатает..."
     context.bot.send_chat_action(chat_id=uid, action=telegram.ChatAction.TYPING)
-
     reply = ask_ai(uid, message)
-
     update.message.reply_text(
         f"{BOT_IC} {reply}\n\n{_sep()}\n_Задай следующий вопрос или выбери действие:_",
         parse_mode="Markdown",
@@ -954,7 +1143,7 @@ def ai_chat_handler(update, context):
     return AI_CHAT
 
 # ══════════════════════════════════════════
-#  QUANTITY INPUT
+#  ВВОД КОЛИЧЕСТВА
 # ══════════════════════════════════════════
 def handle_quantity_input(update, context):
     uid      = update.effective_user.id
@@ -977,8 +1166,49 @@ def handle_quantity_input(update, context):
         return cancel_order(uid, context=context)
 
     context.bot.send_message(chat_id=uid, text=text,
+                              reply_markup=_kbd_qty(), parse_mode="Markdown")
+    # После расчёта — выбор доставки
+    context.bot.send_message(
+        chat_id=uid,
+        text=f"{TRUCK} *Выбери способ доставки:*",
+        parse_mode="Markdown",
+        reply_markup=_kbd_delivery(uid),
+    )
+    return SELECTING_DELIVERY
+
+# ══════════════════════════════════════════
+#  ВВОД АДРЕСА
+# ══════════════════════════════════════════
+def handle_address_input(update, context):
+    uid     = update.effective_user.id
+    address = update.message.text.strip()
+
+    s = user_sessions.get(uid)
+    if not s:
+        return cancel_order(uid, context=context)
+
+    s["address"] = address
+
+    # Показываем итог с адресом
+    delivery_label = DELIVERY_METHODS.get(s.get("delivery_method", "pickup"), ("Самовывоз", ""))[0]
+    text = _build_confirm_text(s, delivery_label, address)
+    context.bot.send_message(chat_id=uid, text=text,
                               reply_markup=_kbd_confirm(), parse_mode="Markdown")
     return CONFIRMING_ORDER
+
+def _build_confirm_text(s, delivery_label, address=""):
+    lines = [
+        f"{FIRE}{FIRE} *Итог заказа* {FIRE}{FIRE}", "",
+        f"{MONEY}{MONEY} *{s['total']} руб.* {MONEY}{MONEY}",
+        f"{CLOCK} Срок: *{s['delivery']}*",
+        f"{TRUCK} Доставка: *{delivery_label}*",
+    ]
+    if address:
+        lines.append(f"📍 Адрес: {address}")
+    if s.get("discount"):
+        lines.append(f"🎁 Скидка: *{s['discount']}%*")
+    lines += ["", f"_{STAR} Подтверждаем заказ?_"]
+    return "\n".join(lines)
 
 # ══════════════════════════════════════════
 #  BUTTON HANDLER
@@ -990,27 +1220,97 @@ def button_handler(update, context):
     data = query.data
     logger.info(f"CB {data} uid={uid}")
 
-    # ── главное меню ─────────────────────────
+    # ── главное меню ─────────────────────
     if data == "main_menu":
         query.edit_message_text(
             f"🏠 *Главное меню*\n\nВыбери действие:",
-            reply_markup=_kbd_main(),
-            parse_mode="Markdown",
+            reply_markup=_kbd_main(uid), parse_mode="Markdown",
         )
         return WAITING_FOR_FILE
 
-    # ── начать заказ ─────────────────────────
+    # ── начать заказ ─────────────────────
     if data == "start_order":
         query.edit_message_text(
             f"{CAMERA}{DOC} *Отправь файлы для печати*\n\n"
-            f"Поддерживаемые форматы:\n"
             f"_JPG, PNG, PDF, DOC, DOCX_\n\n"
             f"📦 Можно кидать сразу несколько файлов!",
             parse_mode="Markdown",
         )
         return WAITING_FOR_FILE
 
-    # ── показать цены ────────────────────────
+    # ── мои заказы ───────────────────────
+    if data == "my_orders":
+        client = get_client(uid)
+        if not client or not client.get("orders"):
+            query.edit_message_text(
+                f"📋 *Мои заказы*\n\nУ тебя пока нет заказов {SPARK}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"{CAMERA}  Сделать первый заказ", callback_data="start_order")],
+                    [InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")],
+                ]),
+                parse_mode="Markdown",
+            )
+            return WAITING_FOR_FILE
+
+        orders = client["orders"]
+        disc   = get_loyalty_discount(uid)
+        spent  = client.get("total_spent", 0)
+        lines  = [
+            f"📋 *Мои заказы*", "",
+            f"🛍 Всего: *{len(orders)}*",
+            f"💸 Потрачено: *{spent} руб.*",
+        ]
+        if disc:
+            lines.append(f"{CROWN} Скидка: *{disc}%*")
+        lines += ["", _sep(), ""]
+
+        for o in reversed(orders[-5:]):
+            date   = o["date"][:10]
+            otype  = "🖼 Фото" if o["type"] == "photo" else "📄 Документы"
+            lines.append(f"🆔 `{o['order_id']}`")
+            lines.append(f"   {otype}  ×{o['quantity']}  —  *{o['total']} руб.*")
+            lines.append(f"   📅 {date}")
+            lines.append("")
+
+        kbd = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔄  Повторить последний", callback_data="repeat_order")],
+            [InlineKeyboardButton(f"{CAMERA}  Новый заказ",  callback_data="start_order")],
+            [InlineKeyboardButton("🏠  Главное меню",         callback_data="main_menu")],
+        ])
+        try:
+            query.edit_message_text("\n".join(lines),
+                                    parse_mode="Markdown", reply_markup=kbd)
+        except Exception:
+            context.bot.send_message(chat_id=uid, text="\n".join(lines),
+                                     parse_mode="Markdown", reply_markup=kbd)
+        return WAITING_FOR_FILE
+
+    # ── повтор последнего заказа ─────────
+    if data == "repeat_order":
+        last = get_last_order(uid)
+        if not last:
+            query.answer("Нет предыдущих заказов!", show_alert=True)
+            return WAITING_FOR_FILE
+        otype  = "🖼 Фото" if last["type"] == "photo" else "📄 Документы"
+        dmethod = DELIVERY_METHODS.get(last.get("delivery", "pickup"), ("Самовывоз",""))[0]
+        try:
+            query.edit_message_text(
+                f"🔄 *Повтор заказа*\n\n"
+                f"Последний заказ:\n"
+                f"{otype}  ×{last['quantity']}  —  *{last['total']} руб.*\n"
+                f"{TRUCK} {dmethod}\n\n"
+                f"Чтобы повторить — отправь те же файлы снова 📎\n\n"
+                f"_Формат и количество можно будет изменить_",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🏠  Главное меню", callback_data="main_menu")]
+                ]),
+            )
+        except Exception:
+            pass
+        return WAITING_FOR_FILE
+
+    # ── цены ─────────────────────────────
     if data == "show_prices":
         kbd = InlineKeyboardMarkup([
             [InlineKeyboardButton(f"{CAMERA}  Сделать заказ", callback_data="start_order")],
@@ -1024,17 +1324,20 @@ def button_handler(update, context):
                                      reply_markup=kbd, parse_mode="Markdown")
         return WAITING_FOR_FILE
 
-    # ── контакты ─────────────────────────────
+    # ── контакты ─────────────────────────
     if data == "show_contacts":
         query.edit_message_text(
             f"📞 *Контакты*\n\n"
-            f"📱 Телефон: *{CONTACT_PHONE}*\n"
-            f"🚚 Доставка: *{DELIVERY_OPTIONS}*\n\n"
+            f"📱 Телефон: *{CONTACT_PHONE}*\n\n"
+            f"🚚 *Варианты доставки:*\n"
+            f"🏪 Самовывоз СПб — Бесплатно\n"
+            f"📦 СДЭК — По тарифу\n"
+            f"🚕 Яндекс Доставка — По тарифу\n\n"
             f"Как сделать заказ:\n"
             f"1️⃣ Отправьте файл в бот\n"
             f"2️⃣ Выберите формат и количество\n"
-            f"3️⃣ Подтвердите заказ\n"
-            f"4️⃣ Заберите готовую печать\n\n"
+            f"3️⃣ Выберите доставку\n"
+            f"4️⃣ Подтвердите заказ\n\n"
             f"Просто, быстро и аккуратно 🙌",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"{CAMERA}  Сделать заказ", callback_data="start_order")],
@@ -1044,68 +1347,53 @@ def button_handler(update, context):
         )
         return WAITING_FOR_FILE
 
-    # ── ИИ-ассистент ─────────────────────────
+    # ── ИИ ───────────────────────────────
     if data == "start_ai":
         try:
             query.edit_message_text(
                 f"{BOT_IC}{BRAIN} *ИИ-ассистент*\n\n"
-                f"Привет! Я отвечу на любые вопросы о ценах,\n"
-                f"услугах, сроках и процессе заказа.\n\n"
-                f"Просто напиши свой вопрос 💬",
-                reply_markup=_kbd_ai(),
-                parse_mode="Markdown",
+                f"Задай любой вопрос о ценах, услугах и сроках 💬",
+                reply_markup=_kbd_ai(), parse_mode="Markdown",
             )
         except Exception:
             context.bot.send_message(
                 chat_id=uid,
-                text=(
-                    f"{BOT_IC}{BRAIN} *ИИ-ассистент*\n\n"
-                    f"Просто напиши свой вопрос 💬"
-                ),
-                reply_markup=_kbd_ai(),
-                parse_mode="Markdown",
+                text=f"{BOT_IC}{BRAIN} *ИИ-ассистент*\n\nЗадай свой вопрос 💬",
+                reply_markup=_kbd_ai(), parse_mode="Markdown",
             )
         return AI_CHAT
 
-    # ── сброс диалога с ИИ ───────────────────
     if data == "reset_ai":
         ai_histories.pop(uid, None)
         query.edit_message_text(
-            f"{BOT_IC} *Диалог с ИИ сброшен* {CHECK}\n\n"
-            f"Начнём заново! Задай свой вопрос 💬",
-            reply_markup=_kbd_ai(),
-            parse_mode="Markdown",
+            f"{BOT_IC} *Диалог сброшен* {CHECK}\n\nЗадай свой вопрос 💬",
+            reply_markup=_kbd_ai(), parse_mode="Markdown",
         )
         return AI_CHAT
 
-    # ── отмена заказа ────────────────────────
+    # ── отмена ───────────────────────────
     if data == "cancel":
         return cancel_order(uid, query, context)
 
-    # ── добавить файлы ───────────────────────
+    # ── добавить файлы ───────────────────
     if data == "add_more":
         query.edit_message_text(
-            f"{CAMERA}{DOC} *Отправь следующие файлы*\n\n"
-            "_JPG, PNG, PDF, DOC, DOCX_",
+            f"{CAMERA}{DOC} *Отправь следующие файлы*\n\n_JPG, PNG, PDF, DOC, DOCX_",
             parse_mode="Markdown",
         )
         return WAITING_FOR_FILE
 
-    # ── подсказка: ввести число ───────────────
+    # ── ввод числа (подсказка) ────────────
     if data == "qty_hint":
-        query.answer(
-            "Просто напиши число в чат!\nНапример: 7 или 25",
-            show_alert=True,
-        )
+        query.answer("Просто напиши число в чат!\nНапример: 7 или 25", show_alert=True)
         return ENTERING_QUANTITY
 
-    # ── новый заказ ──────────────────────────
+    # ── новый заказ ──────────────────────
     if data == "new_order":
         _cleanup(uid)
         query.edit_message_text(
             f"{ROCKET}{SPARK} *Новый заказ!*\n\n"
-            "Отправь файлы для печати\n"
-            "_JPG, PNG, PDF, DOC, DOCX_",
+            "Отправь файлы для печати\n_JPG, PNG, PDF, DOC, DOCX_",
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton(f"{BOT_IC}  Спросить ИИ", callback_data="start_ai")],
@@ -1113,7 +1401,7 @@ def button_handler(update, context):
         )
         return WAITING_FOR_FILE
 
-    # ── выбор формата фото ───────────────────
+    # ── выбор формата фото ───────────────
     if data.startswith("photo_"):
         if uid not in user_sessions:
             return cancel_order(uid, query, context)
@@ -1123,16 +1411,14 @@ def button_handler(update, context):
         fmt     = user_sessions[uid]["format"]
         query.edit_message_text(
             f"{CAMERA} *Формат: {fmt_map.get(fmt, fmt)}*\n\n"
-            f"{STAR} Отличный выбор!\n\n"
-            f"{_sep()}\n\n"
+            f"{STAR} Отличный выбор!\n\n{_sep()}\n\n"
             f"🔢 *Сколько копий напечатать?*\n\n"
             f"👆 Нажми кнопку или *напиши число* в чат:",
-            parse_mode="Markdown",
-            reply_markup=_kbd_qty(),
+            parse_mode="Markdown", reply_markup=_kbd_qty(),
         )
         return ENTERING_QUANTITY
 
-    # ── выбор типа документов ────────────────
+    # ── выбор типа документов ────────────
     if data.startswith("doc_"):
         if uid not in user_sessions:
             return cancel_order(uid, query, context)
@@ -1148,12 +1434,11 @@ def button_handler(update, context):
             f"{_sep()}\n\n"
             f"🔢 *Сколько копий напечатать?*\n\n"
             f"👆 Нажми кнопку или *напиши число* в чат:",
-            parse_mode="Markdown",
-            reply_markup=_kbd_qty(),
+            parse_mode="Markdown", reply_markup=_kbd_qty(),
         )
         return ENTERING_QUANTITY
 
-    # ── количество кнопкой ───────────────────
+    # ── количество кнопкой ───────────────
     if data.startswith("qty_"):
         quantity = int(data.split("_")[1])
         s = user_sessions.get(uid)
@@ -1165,10 +1450,66 @@ def button_handler(update, context):
         try: query.message.delete()
         except Exception: pass
         context.bot.send_message(chat_id=uid, text=text,
-                                  reply_markup=_kbd_confirm(), parse_mode="Markdown")
+                                  parse_mode="Markdown")
+        # Выбор доставки
+        context.bot.send_message(
+            chat_id=uid,
+            text=f"{TRUCK} *Выбери способ доставки:*",
+            parse_mode="Markdown",
+            reply_markup=_kbd_delivery(uid),
+        )
+        return SELECTING_DELIVERY
+
+    # ── выбор доставки ───────────────────
+    if data.startswith("delivery_"):
+        method = data.split("_", 1)[1]
+        s = user_sessions.get(uid)
+        if not s:
+            return cancel_order(uid, query, context)
+
+        s["delivery_method"] = method
+        label, price = DELIVERY_METHODS.get(method, ("Самовывоз", "Бесплатно"))
+
+        if method == "pickup":
+            # Самовывоз — сразу к подтверждению
+            s["address"] = ""
+            text = _build_confirm_text(s, label)
+            query.edit_message_text(text, reply_markup=_kbd_confirm(),
+                                    parse_mode="Markdown")
+            return CONFIRMING_ORDER
+        else:
+            # Курьер — просим адрес
+            # Подставляем последний адрес если есть
+            client      = get_client(uid)
+            last_addr   = client.get("last_address", "") if client else ""
+            hint        = f"\n\nПоследний адрес: _{last_addr}_" if last_addr else ""
+            query.edit_message_text(
+                f"{TRUCK} *{label}*\n\n"
+                f"📍 Напиши адрес доставки{hint}\n\n"
+                f"_Или введи новый адрес:_",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton(f"✅  Использовать: {last_addr[:30]}", callback_data="use_last_address")] if last_addr else [],
+                    [InlineKeyboardButton("🗑  Отменить заказ", callback_data="cancel")],
+                ]),
+            )
+            return ENTERING_ADDRESS
+
+    # ── использовать последний адрес ─────
+    if data == "use_last_address":
+        s = user_sessions.get(uid)
+        if not s:
+            return cancel_order(uid, query, context)
+        client = get_client(uid)
+        addr   = client.get("last_address", "") if client else ""
+        s["address"] = addr
+        label  = DELIVERY_METHODS.get(s.get("delivery_method", "pickup"), ("Самовывоз",""))[0]
+        text   = _build_confirm_text(s, label, addr)
+        query.edit_message_text(text, reply_markup=_kbd_confirm(),
+                                parse_mode="Markdown")
         return CONFIRMING_ORDER
 
-    # ── подтверждение ────────────────────────
+    # ── подтверждение ────────────────────
     if data == "confirm":
         s = user_sessions.get(uid)
         if not s:
@@ -1184,35 +1525,46 @@ def button_handler(update, context):
             dc = [f for f in s["files"] if f["type"] == "doc"]
             tp = sum(f["items"] for f in ph)
             td = sum(f["items"] for f in dc)
+            delivery_label = DELIVERY_METHODS.get(
+                s.get("delivery_method", "pickup"), ("Самовывоз", "")
+            )[0]
 
             lines = [
-                f"{PARTY}{FIRE}{PARTY}",
-                "",
-                f"{CHECK} *ЗАКАЗ ОФОРМЛЕН!*",
-                "",
+                f"{PARTY}{FIRE}{PARTY}", "",
+                f"{CHECK} *ЗАКАЗ ОФОРМЛЕН!*", "",
                 f"🆔 `{oid}`",
                 f"👤 *{s['user_info']['first_name']}*",
                 f"📦 Файлов: *{len(s['files'])}*",
             ]
             if tp: lines.append(f"{CAMERA} Фото к печати: *{tp * s['quantity']} шт.*")
             if td: lines.append(f"📃 Страниц к печати: *{td * s['quantity']} шт.*")
+            if s.get("discount"):
+                lines.append(f"🎁 Скидка: *{s['discount']}%*")
             lines += [
-                "",
-                _sep(),
-                "",
+                "", _sep(), "",
                 f"{MONEY} *К оплате: {s['total']} руб.*",
                 f"{CLOCK} Срок: *{s['delivery']}*",
-                "",
-                _sep(),
-                "",
+                f"{TRUCK} Доставка: *{delivery_label}*",
+            ]
+            if s.get("address"):
+                lines.append(f"📍 Адрес: {s['address']}")
+            lines += [
+                "", _sep(), "",
                 f"📞 {CONTACT_PHONE}",
-                f"🚚 {DELIVERY_OPTIONS}",
-                "",
                 f"📌 Статус: *{get_status_display('new')}*",
-                f"{BELL} Уведомлю при каждом изменении статуса",
+                f"{BELL} Уведомлю при изменении статуса",
                 "",
                 f"{HEART} Спасибо за заказ!",
             ]
+
+            # Подсказка о следующей скидке
+            client     = get_client(uid)
+            orders_cnt = len(client.get("orders", [])) if client else 0
+            for thr, pct in sorted(LOYALTY_DISCOUNTS.items()):
+                if orders_cnt < thr:
+                    lines.append(f"\n💡 Ещё *{thr - orders_cnt}* заказ(ов) до скидки *{pct}%*!")
+                    break
+
             context.bot.send_message(
                 chat_id=uid, text="\n".join(lines), parse_mode="Markdown"
             )
@@ -1232,8 +1584,7 @@ def button_handler(update, context):
         else:
             context.bot.send_message(
                 chat_id=uid,
-                text=(f"😔 *Что-то пошло не так*\n\n"
-                      f"Попробуй ещё раз или напиши нам: {CONTACT_PHONE}"),
+                text=f"😔 *Что-то пошло не так*\n\nПопробуй ещё раз: {CONTACT_PHONE}",
                 parse_mode="Markdown",
             )
 
@@ -1243,7 +1594,7 @@ def button_handler(update, context):
         context.bot.send_message(
             chat_id=uid,
             text=f"Хочешь напечатать что-то ещё? {ROCKET}",
-            reply_markup=_kbd_new(),
+            reply_markup=_kbd_new(uid),
         )
         return WAITING_FOR_FILE
 
@@ -1261,50 +1612,39 @@ ANIMATED_STYLE = """
   @keyframes spin   {from{transform:rotate(0deg)}      to{transform:rotate(360deg)}}
   @keyframes bounce {0%,100%{transform:translateY(0)}  30%{transform:translateY(-12px)} 60%{transform:translateY(-5px)}}
   @keyframes glow   {0%,100%{text-shadow:0 0 5px rgba(255,255,255,.3)} 50%{text-shadow:0 0 20px rgba(255,255,255,.9),0 0 40px rgba(255,200,100,.6)}}
-
   .emoji-float  {display:inline-block;animation:float  2.5s ease-in-out infinite}
   .emoji-pulse  {display:inline-block;animation:pulse  1.8s ease-in-out infinite}
   .emoji-spin   {display:inline-block;animation:spin     3s linear      infinite}
   .emoji-bounce {display:inline-block;animation:bounce 1.5s ease        infinite}
   .emoji-glow   {display:inline-block;animation:glow     2s ease-in-out infinite}
-
   *{box-sizing:border-box}
-  body{font-family:'Segoe UI',Arial,sans-serif;
-       background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-       min-height:100vh;padding:20px;margin:0}
+  body{font-family:'Segoe UI',Arial,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px;margin:0}
   .container{max-width:1400px;margin:0 auto}
-  .header{background:rgba(255,255,255,.12);backdrop-filter:blur(14px);
-          border-radius:24px;padding:30px;margin-bottom:30px;color:#fff;
-          border:1px solid rgba(255,255,255,.2)}
+  .header{background:rgba(255,255,255,.12);backdrop-filter:blur(14px);border-radius:24px;padding:30px;margin-bottom:30px;color:#fff;border:1px solid rgba(255,255,255,.2)}
   .header h1{margin:0 0 8px;font-size:2.2em}
   .nav-links{display:flex;gap:12px;margin-bottom:28px;flex-wrap:wrap}
-  .nav-btn{background:rgba(255,255,255,.18);color:#fff;text-decoration:none;
-           padding:10px 22px;border-radius:12px;font-weight:600;transition:background .2s}
+  .nav-btn{background:rgba(255,255,255,.18);color:#fff;text-decoration:none;padding:10px 22px;border-radius:12px;font-weight:600;transition:background .2s}
   .nav-btn:hover{background:rgba(255,255,255,.32)}
   .orders-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:24px}
-  .order-card{background:#fff;border-radius:20px;overflow:hidden;
-              box-shadow:0 8px 32px rgba(0,0,0,.12);transition:transform .2s,box-shadow .2s}
+  .order-card{background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.12);transition:transform .2s,box-shadow .2s}
   .order-card:hover{transform:translateY(-4px);box-shadow:0 16px 48px rgba(0,0,0,.2)}
   .order-header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:18px 22px}
   .order-header h2{margin:0 0 4px;font-size:1.05em;word-break:break-all}
   .order-content{padding:18px}
   .status-buttons{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
-  .status-btn{padding:5px 10px;border:none;border-radius:8px;cursor:pointer;
-              font-size:.8em;font-weight:600;transition:filter .15s}
+  .status-btn{padding:5px 10px;border:none;border-radius:8px;cursor:pointer;font-size:.8em;font-weight:600;transition:filter .15s}
   .status-btn:hover{filter:brightness(1.1)}
-  .status-btn.new       {background:#dbeafe;color:#1d4ed8}
+  .status-btn.new{background:#dbeafe;color:#1d4ed8}
   .status-btn.processing{background:#fef3c7;color:#92400e}
-  .status-btn.printing  {background:#dcfce7;color:#166534}
-  .status-btn.ready     {background:#ede9fe;color:#5b21b6}
-  .status-btn.shipped   {background:#fce7f3;color:#9d174d}
-  .status-btn.delivered {background:#d1fae5;color:#065f46}
-  .status-btn.cancelled {background:#fee2e2;color:#991b1b}
+  .status-btn.printing{background:#dcfce7;color:#166534}
+  .status-btn.ready{background:#ede9fe;color:#5b21b6}
+  .status-btn.shipped{background:#fce7f3;color:#9d174d}
+  .status-btn.delivered{background:#d1fae5;color:#065f46}
+  .status-btn.cancelled{background:#fee2e2;color:#991b1b}
   .photo-gallery{display:flex;gap:8px;overflow-x:auto;padding:6px 0}
-  .photo-preview{width:76px;height:76px;object-fit:cover;border-radius:10px;
-                 cursor:pointer;transition:transform .2s;flex-shrink:0}
+  .photo-preview{width:76px;height:76px;object-fit:cover;border-radius:10px;cursor:pointer;transition:transform .2s;flex-shrink:0}
   .photo-preview:hover{transform:scale(1.08)}
-  .action-btn{display:inline-block;padding:8px 16px;color:#fff;text-decoration:none;
-              border-radius:10px;margin-top:10px;margin-right:6px;font-weight:600;font-size:.88em}
+  .action-btn{display:inline-block;padding:8px 16px;color:#fff;text-decoration:none;border-radius:10px;margin-top:10px;margin-right:6px;font-weight:600;font-size:.88em}
   .btn-view{background:linear-gradient(135deg,#667eea,#764ba2)}
   .btn-dl{background:linear-gradient(135deg,#11998e,#38ef7d)}
   .stats-bar{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
@@ -1317,7 +1657,7 @@ def list_orders():
     try:
         orders = []
         if os.path.exists(ORDERS_PATH):
-            hmap = {h.get("order_id"): h.get("status", "new") for h in load_history()}
+            hmap = {h.get("order_id"): h for h in load_history()}
             for item in sorted(os.listdir(ORDERS_PATH), reverse=True):
                 ipath = os.path.join(ORDERS_PATH, item)
                 if not os.path.isdir(ipath):
@@ -1332,19 +1672,24 @@ def list_orders():
                     fsz   = os.path.getsize(fp)
                     tsize += fsz
                     is_ph = fn.lower().endswith((".jpg", ".jpeg", ".png"))
-                    fi = {"name": fn, "size_formatted": format_size(fsz),
-                          "url": f"/orders/{item}/{fn}", "is_photo": is_ph}
+                    fi    = {"name": fn, "size_formatted": format_size(fsz),
+                             "url": f"/orders/{item}/{fn}", "is_photo": is_ph}
                     files.append(fi)
-                    if is_ph:
-                        photos.append(fi)
+                    if is_ph: photos.append(fi)
                 ctime  = datetime.fromtimestamp(os.path.getctime(ipath))
-                status = hmap.get(item, "new")
+                hentry = hmap.get(item, {})
+                status = hentry.get("status", "new")
+                dmethod = hentry.get("delivery_method", "pickup")
+                dlabel  = DELIVERY_METHODS.get(dmethod, ("Самовывоз",""))[0]
                 orders.append({
                     "id": item, "photos": photos[:5], "file_count": len(files),
                     "total_size": format_size(tsize),
                     "created": ctime.strftime("%d.%m.%Y %H:%M"),
                     "age_days": (datetime.now() - ctime).days,
                     "status": get_status_display(status),
+                    "delivery": dlabel,
+                    "address":  hentry.get("address", ""),
+                    "total":    hentry.get("total_price", ""),
                 })
         orders.sort(key=lambda x: x["created"], reverse=True)
 
@@ -1352,12 +1697,9 @@ def list_orders():
         <title>Заказы — Print Bot</title><meta charset="utf-8">
         """ + ANIMATED_STYLE + """
         <script>
-        function upd(id,s){
-            fetch('/orders/'+id+'/status',{method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({status:s})
-            }).then(r=>r.json()).then(d=>{if(d.success)location.reload();else alert('Ошибка');});
-        }
+        function upd(id,s){fetch('/orders/'+id+'/status',{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({status:s})
+        }).then(r=>r.json()).then(d=>{if(d.success)location.reload();else alert('Ошибка');});}
         </script></head><body>
         <div class="container">
           <div class="header">
@@ -1366,6 +1708,7 @@ def list_orders():
           </div>
           <div class="nav-links">
             <a href="/" class="nav-btn"><span class="emoji-float">🏠</span> Главная</a>
+            <a href="/clients" class="nav-btn"><span class="emoji-pulse">👥</span> Клиенты</a>
             <a href="/stats" class="nav-btn"><span class="emoji-pulse">📊</span> Статистика</a>
           </div>
           <div class="orders-grid">
@@ -1387,16 +1730,15 @@ def list_orders():
               </div>
               {% if o.photos %}
               <div class="photo-gallery">
-                {% for p in o.photos %}
-                <img src="{{ p.url }}" class="photo-preview" onclick="window.open('{{ p.url }}')">
-                {% endfor %}
-              </div>
-              {% endif %}
+                {% for p in o.photos %}<img src="{{ p.url }}" class="photo-preview" onclick="window.open('{{ p.url }}')">{% endfor %}
+              </div>{% endif %}
               <div class="stats-bar">
                 <span class="stat">📁 {{ o.file_count }} файлов</span>
                 <span class="stat">💾 {{ o.total_size }}</span>
-                <span class="stat">📅 {{ o.age_days }} дн.</span>
+                {% if o.total %}<span class="stat">💰 {{ o.total }} руб.</span>{% endif %}
+                <span class="stat">🚚 {{ o.delivery }}</span>
               </div>
+              {% if o.address %}<div style="font-size:.82em;color:#6b7280;margin-top:6px">📍 {{ o.address }}</div>{% endif %}
               <a href="/orders/{{ o.id }}/" class="action-btn btn-view">👁 Подробнее</a>
               <a href="/orders/{{ o.id }}/download" class="action-btn btn-dl">⬇️ ZIP</a>
             </div>
@@ -1409,31 +1751,72 @@ def list_orders():
         logger.error(f"list_orders: {e}")
         return f"Ошибка: {e}", 500
 
+@app.route("/clients")
+def list_clients():
+    try:
+        clients = load_clients()
+        clist   = sorted(clients.values(),
+                         key=lambda c: len(c.get("orders", [])), reverse=True)
+        rows = ""
+        for c in clist:
+            cnt   = len(c.get("orders", []))
+            spent = c.get("total_spent", 0)
+            disc  = 0
+            for thr, pct in sorted(LOYALTY_DISCOUNTS.items()):
+                if cnt >= thr: disc = pct
+            badge = f'<span style="background:#7c3aed;color:#fff;padding:2px 8px;border-radius:8px;font-size:.8em">👑 {disc}%</span>' if disc else ""
+            rows += f"""<tr>
+              <td>{c.get('first_name','')} @{c.get('username','')}</td>
+              <td>{cnt}</td>
+              <td>{spent} руб.</td>
+              <td>{badge}</td>
+              <td style="font-size:.8em;color:#6b7280">{c.get('last_seen','')[:10]}</td>
+            </tr>"""
+        return f"""<!DOCTYPE html><html><head><title>Клиенты</title>
+        <meta charset="utf-8">{ANIMATED_STYLE}
+        <style>
+          table{{width:100%;border-collapse:collapse;background:#fff;border-radius:16px;overflow:hidden}}
+          th{{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:12px 16px;text-align:left}}
+          td{{padding:10px 16px;border-bottom:1px solid #f3f4f6}}
+          tr:hover td{{background:#f9fafb}}
+        </style></head><body>
+        <div class="container">
+          <div class="header">
+            <h1><span class="emoji-glow">👥</span> Клиентская база</h1>
+            <p>Всего клиентов: <b>{len(clist)}</b></p>
+          </div>
+          <div class="nav-links">
+            <a href="/" class="nav-btn">🏠 Главная</a>
+            <a href="/orders/" class="nav-btn">📦 Заказы</a>
+          </div>
+          <table>
+            <tr><th>Клиент</th><th>Заказов</th><th>Потрачено</th><th>Скидка</th><th>Последний визит</th></tr>
+            {rows}
+          </table>
+        </div></body></html>"""
+    except Exception as e:
+        return f"Ошибка: {e}", 500
+
 @app.route("/orders/<path:order_id>/")
 def view_order(order_id):
     try:
         opath = os.path.join(ORDERS_PATH, order_id)
         if not os.path.exists(opath) or not os.path.isdir(opath):
             abort(404)
-
         info_text = ""
         inf = os.path.join(opath, "информация_о_заказе.txt")
         if os.path.exists(inf):
             with open(inf, "r", encoding="utf-8") as f:
                 info_text = f.read()
-
         status = "new"
         for h in load_history():
             if h.get("order_id") == order_id:
-                status = h.get("status", "new")
-                break
-
+                status = h.get("status", "new"); break
         files  = []
         photos = []
         tsize  = 0
         for fn in sorted(os.listdir(opath)):
-            if fn == "информация_о_заказе.txt":
-                continue
+            if fn == "информация_о_заказе.txt": continue
             fp   = os.path.join(opath, fn)
             fsz  = os.path.getsize(fp)
             tsize += fsz
@@ -1441,62 +1824,42 @@ def view_order(order_id):
             fi   = {"name": fn, "size_formatted": format_size(fsz),
                     "url": f"/orders/{order_id}/{fn}", "is_photo": iph}
             files.append(fi)
-            if iph:
-                photos.append(fi)
-
-        ctime = datetime.fromtimestamp(os.path.getctime(opath))
-
+            if iph: photos.append(fi)
+        ctime   = datetime.fromtimestamp(os.path.getctime(opath))
         ph_html = "".join(
-            f'<div class="ph-item"><img src="{p["url"]}" class="ph-img" '
-            f'onclick="window.open(\'{p["url"]}\')">'
-            f'<div class="ph-lbl">{p["name"]}</div></div>'
-            for p in photos
+            f'<div class="ph-item"><img src="{p["url"]}" class="ph-img" onclick="window.open(\'{p["url"]}\')">'
+            f'<div class="ph-lbl">{p["name"]}</div></div>' for p in photos
         )
         fl_html = "".join(
             f'<a href="{f["url"]}" class="file-card" download>'
             f'<div class="file-icon">{"📸" if f["is_photo"] else "📄"}</div>'
             f'<div class="file-name">{f["name"]}</div>'
-            f'<div class="file-sz">{f["size_formatted"]}</div></a>'
-            for f in files
+            f'<div class="file-sz">{f["size_formatted"]}</div></a>' for f in files
         )
-
-        return f"""<!DOCTYPE html><html><head>
-        <title>Заказ {order_id}</title><meta charset="utf-8">
-        {ANIMATED_STYLE}
+        return f"""<!DOCTYPE html><html><head><title>Заказ {order_id}</title>
+        <meta charset="utf-8">{ANIMATED_STYLE}
         <style>
           .content{{background:#fff;border-radius:20px;padding:30px}}
-          .sec{{margin-bottom:28px}}
-          .sec h3{{color:#374151;margin-bottom:12px}}
-          pre{{background:#f9fafb;border-radius:12px;padding:16px;font-size:.88em;
-               overflow-x:auto;white-space:pre-wrap;line-height:1.6}}
+          .sec{{margin-bottom:28px}} .sec h3{{color:#374151;margin-bottom:12px}}
+          pre{{background:#f9fafb;border-radius:12px;padding:16px;font-size:.88em;overflow-x:auto;white-space:pre-wrap;line-height:1.6}}
           .ph-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}}
           .ph-item{{background:#f3f4f6;border-radius:12px;padding:10px;text-align:center}}
           .ph-img{{max-width:100%;max-height:120px;border-radius:8px;cursor:pointer;transition:transform .2s}}
           .ph-img:hover{{transform:scale(1.06)}}
           .ph-lbl{{font-size:.72em;color:#6b7280;margin-top:5px;word-break:break-all}}
           .files-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}}
-          .file-card{{background:#f3f4f6;border-radius:12px;padding:14px;text-align:center;
-                     text-decoration:none;color:#374151;display:block;transition:background .15s}}
+          .file-card{{background:#f3f4f6;border-radius:12px;padding:14px;text-align:center;text-decoration:none;color:#374151;display:block;transition:background .15s}}
           .file-card:hover{{background:#e5e7eb}}
-          .file-icon{{font-size:2em;margin-bottom:6px}}
-          .file-name{{font-size:.82em;word-break:break-all;margin-bottom:3px}}
-          .file-sz{{font-size:.72em;color:#9ca3af}}
-          .dl-all{{display:inline-block;background:linear-gradient(135deg,#11998e,#38ef7d);
-                  color:#fff;text-decoration:none;padding:14px 30px;
-                  border-radius:12px;font-weight:700;font-size:1em}}
+          .file-icon{{font-size:2em;margin-bottom:6px}} .file-name{{font-size:.82em;word-break:break-all;margin-bottom:3px}} .file-sz{{font-size:.72em;color:#9ca3af}}
+          .dl-all{{display:inline-block;background:linear-gradient(135deg,#11998e,#38ef7d);color:#fff;text-decoration:none;padding:14px 30px;border-radius:12px;font-weight:700;font-size:1em}}
         </style>
-        <script>
-        function upd(s){{
-            fetch('/orders/{order_id}/status',{{method:'POST',
-                headers:{{'Content-Type':'application/json'}},
-                body:JSON.stringify({{status:s}})
-            }}).then(r=>r.json()).then(d=>{{if(d.success)location.reload();else alert('Ошибка');}});
-        }}
-        </script></head><body>
-        <div class="container">
+        <script>function upd(s){{fetch('/orders/{order_id}/status',{{method:'POST',
+          headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{status:s}})
+        }}).then(r=>r.json()).then(d=>{{if(d.success)location.reload();else alert('Ошибка');}});}}</script>
+        </head><body><div class="container">
           <div class="header">
             <h1><span class="emoji-float">📁</span> {order_id}</h1>
-            <p>Создан: {ctime.strftime('%d.%m.%Y %H:%M')} &bull; {len(files)} файлов &bull; {format_size(tsize)}</p>
+            <p>{ctime.strftime('%d.%m.%Y %H:%M')} &bull; {len(files)} файлов &bull; {format_size(tsize)}</p>
           </div>
           <div class="nav-links">
             <a href="/orders/" class="nav-btn">← Назад</a>
@@ -1506,33 +1869,26 @@ def view_order(order_id):
             <div class="sec">
               <h3><span class="emoji-pulse">📌</span> Статус: {get_status_display(status)}</h3>
               <div style="display:flex;flex-wrap:wrap;gap:7px;">
-                <button class="status-btn new"        onclick="upd('new')">🆕 Новый</button>
+                <button class="status-btn new" onclick="upd('new')">🆕 Новый</button>
                 <button class="status-btn processing" onclick="upd('processing')">🔄 Обработка</button>
-                <button class="status-btn printing"   onclick="upd('printing')">🖨️ Печать</button>
-                <button class="status-btn ready"      onclick="upd('ready')">✅ Готов</button>
-                <button class="status-btn shipped"    onclick="upd('shipped')">📦 Отправлен</button>
-                <button class="status-btn delivered"  onclick="upd('delivered')">🏁 Доставлен</button>
-                <button class="status-btn cancelled"  onclick="upd('cancelled')">❌ Отменён</button>
+                <button class="status-btn printing" onclick="upd('printing')">🖨️ Печать</button>
+                <button class="status-btn ready" onclick="upd('ready')">✅ Готов</button>
+                <button class="status-btn shipped" onclick="upd('shipped')">📦 Отправлен</button>
+                <button class="status-btn delivered" onclick="upd('delivered')">🏁 Доставлен</button>
+                <button class="status-btn cancelled" onclick="upd('cancelled')">❌ Отменён</button>
               </div>
             </div>
             <div class="sec"><h3>📋 Информация</h3><pre>{info_text}</pre></div>
-            <div class="sec">
-              <h3><span class="emoji-bounce">📸</span> Фото ({len(photos)})</h3>
-              <div class="ph-grid">{ph_html}</div>
-            </div>
-            <div class="sec">
-              <h3>📄 Файлы ({len(files)})</h3>
-              <div class="files-grid">{fl_html}</div>
-            </div>
+            <div class="sec"><h3><span class="emoji-bounce">📸</span> Фото ({len(photos)})</h3>
+              <div class="ph-grid">{ph_html}</div></div>
+            <div class="sec"><h3>📄 Файлы ({len(files)})</h3>
+              <div class="files-grid">{fl_html}</div></div>
             <div style="text-align:center;margin-top:20px;">
-              <a href="/orders/{order_id}/download" class="dl-all">
-                <span class="emoji-bounce">⬇️</span> Скачать всё (ZIP)
-              </a>
+              <a href="/orders/{order_id}/download" class="dl-all"><span class="emoji-bounce">⬇️</span> Скачать всё (ZIP)</a>
             </div>
           </div>
         </div></body></html>"""
     except Exception as e:
-        logger.error(f"view_order: {e}")
         return f"Ошибка: {e}", 500
 
 @app.route("/orders/<path:order_id>/status", methods=["POST"])
@@ -1540,7 +1896,7 @@ def set_status(order_id):
     try:
         data = request.get_json()
         if not data or not data.get("status"):
-            return jsonify({"success": False, "error": "no status"}), 400
+            return jsonify({"success": False}), 400
         return jsonify({"success": update_order_status(order_id, data["status"])})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -1564,9 +1920,8 @@ def dl_zip(order_id):
 @app.route("/orders/<path:order_id>/<filename>")
 def dl_file(order_id, filename):
     try:
-        return send_from_directory(
-            os.path.join(ORDERS_PATH, order_id), filename, as_attachment=True
-        )
+        return send_from_directory(os.path.join(ORDERS_PATH, order_id),
+                                   filename, as_attachment=True)
     except Exception as e:
         return f"Ошибка: {e}", 500
 
@@ -1591,62 +1946,61 @@ def health():
 
 @app.route("/stats")
 def stats():
+    clients = load_clients()
     cnt = len([d for d in os.listdir(ORDERS_PATH)
                if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
-    return jsonify({"status": "ok", "orders_count": cnt,
-                    "active_sessions": len(user_sessions), "ai_sessions": len(ai_histories)})
+    total_revenue = sum(c.get("total_spent", 0) for c in clients.values())
+    return jsonify({
+        "status": "ok",
+        "orders_count":    cnt,
+        "clients_count":   len(clients),
+        "total_revenue":   total_revenue,
+        "active_sessions": len(user_sessions),
+    })
 
 @app.route("/")
 def home():
+    clients = load_clients()
     cnt = len([d for d in os.listdir(ORDERS_PATH)
                if os.path.isdir(os.path.join(ORDERS_PATH, d))]) if os.path.exists(ORDERS_PATH) else 0
-    now = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-    return f"""<!DOCTYPE html><html><head>
-    <title>Print Bot</title><meta charset="utf-8">
-    {ANIMATED_STYLE}
+    revenue = sum(c.get("total_spent", 0) for c in clients.values())
+    now     = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    return f"""<!DOCTYPE html><html><head><title>Print Bot</title>
+    <meta charset="utf-8">{ANIMATED_STYLE}
     <style>
       body{{display:flex;align-items:center;justify-content:center}}
       .hero{{background:rgba(255,255,255,.12);backdrop-filter:blur(14px);border-radius:30px;
              padding:50px 40px;color:#fff;text-align:center;
              border:1px solid rgba(255,255,255,.2);max-width:700px;width:100%}}
       h1{{font-size:3.2em;margin-bottom:16px}}
-      .stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin:30px 0}}
-      .stat-card{{background:rgba(255,255,255,.15);border-radius:16px;padding:22px}}
+      .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:30px 0}}
+      .stat-card{{background:rgba(255,255,255,.15);border-radius:16px;padding:18px}}
       .nav-links2{{display:flex;gap:16px;justify-content:center;margin-top:32px;flex-wrap:wrap}}
-      .nav-btn2{{background:#fff;color:#667eea;text-decoration:none;
-                padding:14px 28px;border-radius:12px;font-weight:700;
-                font-size:1.02em;transition:transform .2s,box-shadow .2s}}
+      .nav-btn2{{background:#fff;color:#667eea;text-decoration:none;padding:14px 28px;
+                border-radius:12px;font-weight:700;font-size:1.02em;transition:transform .2s,box-shadow .2s}}
       .nav-btn2:hover{{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.2)}}
-      .info{{margin-top:28px;padding:18px;background:rgba(0,0,0,.2);border-radius:14px;
-             font-size:.95em;line-height:2}}
+      .info{{margin-top:28px;padding:18px;background:rgba(0,0,0,.2);border-radius:14px;font-size:.95em;line-height:2}}
     </style></head><body>
     <div class="hero">
       <h1><span class="emoji-glow">🤖</span> Print Bot</h1>
-      <p style="font-size:1.1em;opacity:.9;">Сервис печати фото и документов через Telegram</p>
+      <p style="font-size:1.1em;opacity:.9;">Сервис печати фото и документов</p>
       <div class="stats">
-        <div class="stat-card">
-          <div style="font-size:2em"><span class="emoji-bounce">📦</span></div>
-          <div style="font-size:1.8em;font-weight:700">{cnt}</div>
-          <div>заказов</div>
-        </div>
-        <div class="stat-card">
-          <div style="font-size:2em"><span class="emoji-spin">⚙️</span></div>
-          <div style="font-size:1.8em;font-weight:700">24/7</div>
-          <div>работа</div>
-        </div>
-        <div class="stat-card">
-          <div style="font-size:2em"><span class="emoji-float">🚀</span></div>
-          <div style="font-size:1.8em;font-weight:700">1–3</div>
-          <div>дня</div>
-        </div>
+        <div class="stat-card"><div style="font-size:1.8em"><span class="emoji-bounce">📦</span></div>
+          <div style="font-size:1.6em;font-weight:700">{cnt}</div><div>заказов</div></div>
+        <div class="stat-card"><div style="font-size:1.8em"><span class="emoji-pulse">👥</span></div>
+          <div style="font-size:1.6em;font-weight:700">{len(clients)}</div><div>клиентов</div></div>
+        <div class="stat-card"><div style="font-size:1.8em"><span class="emoji-float">💰</span></div>
+          <div style="font-size:1.3em;font-weight:700">{revenue}₽</div><div>выручка</div></div>
+        <div class="stat-card"><div style="font-size:1.8em"><span class="emoji-spin">⚙️</span></div>
+          <div style="font-size:1.6em;font-weight:700">24/7</div><div>работа</div></div>
       </div>
       <div class="nav-links2">
-        <a href="/orders/" class="nav-btn2">📦 Все заказы</a>
-        <a href="/stats"   class="nav-btn2">📊 Статистика</a>
+        <a href="/orders/" class="nav-btn2">📦 Заказы</a>
+        <a href="/clients" class="nav-btn2">👥 Клиенты</a>
+        <a href="/stats"   class="nav-btn2">📊 API</a>
       </div>
       <div class="info">
         <div><span class="emoji-pulse">📞</span> {CONTACT_PHONE}</div>
-        <div><span class="emoji-float">🚚</span> {DELIVERY_OPTIONS}</div>
         <div><span class="emoji-spin">⏰</span> {now}</div>
       </div>
     </div></body></html>"""
@@ -1655,7 +2009,7 @@ def home():
 #  ИНИЦИАЛИЗАЦИЯ
 # ══════════════════════════════════════════
 print("=" * 55)
-print("🚀  ЗАПУСК БОТА v4.0")
+print("🚀  ЗАПУСК БОТА v5.0")
 print(f"📁  Заказы:  {ORDERS_PATH}")
 print(f"👤  Admin:   {ADMIN_CHAT_ID}")
 print(f"🤖  AI:      {'✅ OpenRouter включён' if OPENROUTER_API_KEY else '❌ OPENROUTER_API_KEY не задан'}")
@@ -1667,10 +2021,11 @@ dispatcher = updater.dispatcher
 
 conv = ConversationHandler(
     entry_points=[
-        CommandHandler("start",  start),
-        CommandHandler("prices", cmd_prices),
-        CommandHandler("ai",     cmd_ai),
-        CommandHandler("help",   cmd_help),
+        CommandHandler("start",     start),
+        CommandHandler("myorders",  cmd_myorders),
+        CommandHandler("prices",    cmd_prices),
+        CommandHandler("ai",        cmd_ai),
+        CommandHandler("help",      cmd_help),
         MessageHandler(Filters.document | Filters.photo, handle_file),
     ],
     states={
@@ -1692,6 +2047,15 @@ conv = ConversationHandler(
             CallbackQueryHandler(button_handler, pattern="^qty_hint$"),
             CallbackQueryHandler(button_handler, pattern="^cancel$"),
         ],
+        SELECTING_DELIVERY: [
+            CallbackQueryHandler(button_handler, pattern="^delivery_.*"),
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
+        ],
+        ENTERING_ADDRESS: [
+            MessageHandler(Filters.text & ~Filters.command, handle_address_input),
+            CallbackQueryHandler(button_handler, pattern="^use_last_address$"),
+            CallbackQueryHandler(button_handler, pattern="^cancel$"),
+        ],
         CONFIRMING_ORDER: [
             CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
         ],
@@ -1701,10 +2065,11 @@ conv = ConversationHandler(
         ],
     },
     fallbacks=[
-        CommandHandler("start",  start),
-        CommandHandler("prices", cmd_prices),
-        CommandHandler("ai",     cmd_ai),
-        CommandHandler("help",   cmd_help),
+        CommandHandler("start",    start),
+        CommandHandler("myorders", cmd_myorders),
+        CommandHandler("prices",   cmd_prices),
+        CommandHandler("ai",       cmd_ai),
+        CommandHandler("help",     cmd_help),
     ],
     allow_reentry=True,
 )

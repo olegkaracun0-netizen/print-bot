@@ -36,7 +36,7 @@ if not TOKEN:
     print("❌ ОШИБКА: TOKEN не задан!")
     sys.exit(1)
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")   # для ИИ-ассистента
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")   # для ИИ-ассистента (бесплатно)
 
 ADMIN_CHAT_ID = 483613049
 
@@ -273,89 +273,91 @@ def download_file(file_obj, file_name):
         return None, None
 
 # ══════════════════════════════════════════
-#  ИИ-АССИСТЕНТ
+#  ИИ-АССИСТЕНТ (Google Gemini — бесплатно)
 # ══════════════════════════════════════════
 def ask_ai(user_id, user_message):
-    """Отправляет сообщение в Anthropic API и возвращает ответ."""
-    if not ANTHROPIC_API_KEY:
-        logger.error("AI: ANTHROPIC_API_KEY не задан!")
+    """Отправляет сообщение в Google Gemini API (бесплатно) и возвращает ответ."""
+    if not GEMINI_API_KEY:
+        logger.error("AI: GEMINI_API_KEY не задан!")
         return (
             f"{BOT_IC} ИИ-ассистент не настроен.\n\n"
-            f"Администратору нужно добавить ANTHROPIC_API_KEY в переменные окружения.\n\n"
+            f"Администратору нужно добавить GEMINI_API_KEY в переменные окружения.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
 
-    # Храним историю диалога
+    # Храним историю диалога (формат Gemini)
     if user_id not in ai_histories:
         ai_histories[user_id] = []
 
     ai_histories[user_id].append({
         "role": "user",
-        "content": user_message
+        "parts": [{"text": user_message}]
     })
 
-    # Ограничиваем историю — не больше 10 пар сообщений
+    # Ограничиваем историю — не больше 10 пар
     if len(ai_histories[user_id]) > 20:
         ai_histories[user_id] = ai_histories[user_id][-20:]
 
     try:
         payload = json.dumps({
-            "model": "claude-haiku-4-5",
-            "max_tokens": 800,
-            "system": AI_SYSTEM_PROMPT,
-            "messages": ai_histories[user_id],
+            "system_instruction": {
+                "parts": [{"text": AI_SYSTEM_PROMPT}]
+            },
+            "contents": ai_histories[user_id],
+            "generationConfig": {
+                "maxOutputTokens": 800,
+                "temperature": 0.7,
+            },
         }).encode("utf-8")
 
-        logger.info(f"AI запрос от {user_id}: {user_message[:50]}")
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        )
 
         req = urllib.request.Request(
-            "https://api.anthropic.com/v1/messages",
+            url,
             data=payload,
-            headers={
-                "Content-Type":      "application/json",
-                "x-api-key":         ANTHROPIC_API_KEY,
-                "anthropic-version": "2023-06-01",
-            },
+            headers={"Content-Type": "application/json"},
             method="POST",
         )
 
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            raw  = resp.read().decode("utf-8")
-            data = json.loads(raw)
+        logger.info(f"Gemini запрос от {user_id}: {user_message[:50]}")
 
-        logger.info(f"AI ответ получен для {user_id}")
-        reply = data["content"][0]["text"]
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        reply = data["candidates"][0]["content"]["parts"][0]["text"]
+        logger.info(f"Gemini ответ получен для {user_id}")
 
         # Сохраняем ответ в историю
         ai_histories[user_id].append({
-            "role": "assistant",
-            "content": reply
+            "role": "model",
+            "parts": [{"text": reply}]
         })
 
         return reply
 
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="ignore")
-        logger.error(f"AI HTTP {e.code} BODY: {body}")
-        # Пробуем распарсить ошибку от Anthropic
+        logger.error(f"Gemini HTTP {e.code} BODY: {body}")
         try:
-            err_data = json.loads(body)
-            err_msg  = err_data.get("error", {}).get("message", body)
+            err_msg = json.loads(body).get("error", {}).get("message", body)
         except Exception:
             err_msg = body[:200]
-        logger.error(f"AI детали ошибки: {err_msg}")
+        logger.error(f"Gemini детали ошибки: {err_msg}")
         return (
-            f"😔 Ошибка ИИ (код {e.code}): {err_msg[:100]}\n\n"
+            f"😔 Ошибка ИИ ({e.code}): {err_msg[:120]}\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
     except urllib.error.URLError as e:
-        logger.error(f"AI URLError: {e.reason}")
+        logger.error(f"Gemini URLError: {e.reason}")
         return (
             f"😔 Нет связи с ИИ-сервером.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
         )
     except Exception as e:
-        logger.error(f"AI неизвестная ошибка: {e}\n{traceback.format_exc()}")
+        logger.error(f"Gemini неизвестная ошибка: {e}\n{traceback.format_exc()}")
         return (
             f"😔 Не смог получить ответ от ИИ.\n\n"
             f"По вопросам пишите: {CONTACT_PHONE}"
@@ -1655,7 +1657,7 @@ print("=" * 55)
 print("🚀  ЗАПУСК БОТА v4.0")
 print(f"📁  Заказы:  {ORDERS_PATH}")
 print(f"👤  Admin:   {ADMIN_CHAT_ID}")
-print(f"🤖  AI:      {'✅ включён' if ANTHROPIC_API_KEY else '❌ ANTHROPIC_API_KEY не задан'}")
+print(f"🤖  AI:      {'✅ Gemini включён' if GEMINI_API_KEY else '❌ GEMINI_API_KEY не задан'}")
 print("=" * 55)
 
 bot        = telegram.Bot(token=TOKEN)

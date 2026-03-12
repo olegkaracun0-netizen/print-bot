@@ -300,7 +300,7 @@ def ask_ai(user_id, user_message):
 
     try:
         payload = json.dumps({
-            "model": "mistralai/mistral-7b-instruct:free",
+            "model": "openrouter/free",
             "messages": messages,
             "max_tokens": 800,
             "temperature": 0.7,

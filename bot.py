@@ -882,8 +882,59 @@ def process_single_file(update, context):
                       reply_fn=msg.reply_text)
     return WAITING_FOR_FILE
 
+def _price_block_photos():
+    """Текстовый блок с прайсом на фото."""
+    return (
+        f"📸 *Цены на фото:*\n"
+        f"🔹 *10×15 / A6*\n"
+        f"  от 9 шт — 30₽/шт\n"
+        f"  от 50 — 25₽/шт\n"
+        f"  от 100 — 20₽/шт\n"
+        f"  от 101 — 15₽/шт\n\n"
+        f"🔷 *13×18 / 15×21*\n"
+        f"  от 9 шт — 60₽/шт\n"
+        f"  от 50 — 50₽/шт\n"
+        f"  от 100 — 35₽/шт\n"
+        f"  от 101 — 27₽/шт\n\n"
+        f"🟦 *A4 / 21×30*\n"
+        f"  от 4 шт — 170₽/шт\n"
+        f"  от 20 — 150₽/шт\n"
+        f"  от 50 — 130₽/шт\n"
+        f"  от 51 — 110₽/шт"
+    )
+
+def _price_block_docs():
+    """Текстовый блок с прайсом на документы."""
+    return (
+        f"🖨 *Цены на документы (А4):*\n"
+        f"⚫️ *Чёрно-белая:*\n"
+        f"  от 20 л — 20₽/л\n"
+        f"  от 50 — 15₽/л\n"
+        f"  от 100 — 10₽/л\n"
+        f"  от 300 — 8₽/л\n\n"
+        f"🌈 *Цветная:*\n"
+        f"  от 20 л — 40₽/л\n"
+        f"  от 50 — 30₽/л\n"
+        f"  от 100 — 20₽/л\n"
+        f"  от 300 — 16₽/л"
+    )
+
+def _get_current_price_hint(ftype, fmt_or_color, quantity):
+    """Возвращает строку с актуальной ценой за штуку для данного количества."""
+    if ftype == "photo":
+        pd = PHOTO_PRICES.get(fmt_or_color, {})
+    else:
+        pd = DOC_PRICES.get(fmt_or_color, {})
+    for (mn, mx), price in pd.items():
+        if mn <= quantity <= mx:
+            return price
+    return 0
+
 def _send_format_menu(uid, context, ph_cnt, doc_cnt, tot_ph, tot_pg, reply_fn=None):
+    """Показывает: загружено → прайс → выбор формата."""
     total = ph_cnt + doc_cnt
+
+    # 1) Что загружено
     lines = [
         f"{SPARK}{SPARK}{SPARK}", "",
         f"{CHECK} *{'Файлы загружены' if total > 1 else 'Файл загружен'}!*", "",
@@ -892,8 +943,23 @@ def _send_format_menu(uid, context, ph_cnt, doc_cnt, tot_ph, tot_pg, reply_fn=No
     if doc_cnt: lines.append(f"{DOC} Документов — *{doc_cnt}*")
     if tot_ph:  lines.append(f"🖼 Всего фото — *{tot_ph} шт.*")
     if tot_pg:  lines.append(f"📃 Всего страниц — *{tot_pg} шт.*")
+
+    lines += ["", _sep(), ""]
+
+    # 2) Прайс в зависимости от типа файлов
+    if doc_cnt > 0 and ph_cnt == 0:
+        lines.append(_price_block_docs())
+    elif ph_cnt > 0 and doc_cnt == 0:
+        lines.append(_price_block_photos())
+    else:
+        # Смешанные — показываем оба
+        lines.append(_price_block_photos())
+        lines += ["", _sep(), ""]
+        lines.append(_price_block_docs())
+
     lines += ["", _sep(), "",
               f"{'🖨 *Выбери тип печати:*' if doc_cnt else '🖼 *Выбери формат фото:*'}"]
+
     text = "\n".join(lines)
     kbd  = _kbd_format(doc_cnt)
     if reply_fn:
@@ -1409,10 +1475,30 @@ def button_handler(update, context):
         user_sessions[uid]["format"] = data.split("_")[1]
         fmt_map = {"small": "10×15 / A6", "medium": "13×18 / 15×21", "large": "A4 / 21×30"}
         fmt     = user_sessions[uid]["format"]
+        tot_ph  = user_sessions[uid].get("total_photos", 0)
+
+        # Показываем актуальную цену за штуку исходя из кол-ва фото
+        pd         = PHOTO_PRICES[fmt]
+        price_now  = 0
+        price_next = None
+        next_thr   = None
+        for (mn, mx), price in sorted(pd.items(), key=lambda x: x[0][0]):
+            if tot_ph >= mn:
+                price_now = price
+            elif price_next is None:
+                price_next = price
+                next_thr   = mn
+
+        price_hint = f"💡 У вас *{tot_ph} фото* → цена *{price_now}₽/шт*"
+        if price_next and next_thr:
+            need = next_thr - tot_ph
+            price_hint += f"\n📉 Добавь ещё *{need} фото* и будет *{price_next}₽/шт*"
+
         query.edit_message_text(
             f"{CAMERA} *Формат: {fmt_map.get(fmt, fmt)}*\n\n"
-            f"{STAR} Отличный выбор!\n\n{_sep()}\n\n"
-            f"🔢 *Сколько копий напечатать?*\n\n"
+            f"{price_hint}\n\n"
+            f"{_sep()}\n\n"
+            f"🔢 *Сколько копий каждого фото напечатать?*\n\n"
             f"👆 Нажми кнопку или *напиши число* в чат:",
             parse_mode="Markdown", reply_markup=_kbd_qty(),
         )
@@ -1425,12 +1511,29 @@ def button_handler(update, context):
         user_sessions[uid]["type"]  = "doc"
         color = data.split("_")[1]
         user_sessions[uid]["color"] = color
-        tot_ph = user_sessions[uid].get("total_photos", 0)
-        tot_pg = user_sessions[uid].get("total_pages",  0)
-        cn = {"bw": "⚫️ Чёрно-белая", "color": "🌈 Цветная"}
+        tot_pg = user_sessions[uid].get("total_pages", 0)
+        cn     = {"bw": "⚫️ Чёрно-белая", "color": "🌈 Цветная"}
+
+        # Актуальная цена за страницу
+        pd         = DOC_PRICES[color]
+        price_now  = 0
+        price_next = None
+        next_thr   = None
+        for (mn, mx), price in sorted(pd.items(), key=lambda x: x[0][0]):
+            if tot_pg >= mn:
+                price_now = price
+            elif price_next is None:
+                price_next = price
+                next_thr   = mn
+
+        price_hint = f"💡 У вас *{tot_pg} стр.* → цена *{price_now}₽/стр*"
+        if price_next and next_thr:
+            need = next_thr - tot_pg
+            price_hint += f"\n📉 Добавь ещё *{need} стр.* и будет *{price_next}₽/стр*"
+
         query.edit_message_text(
             f"{PRINT} *Печать: {cn[color]}*\n\n"
-            f"📊 В заказе: {CAMERA} {tot_ph} фото + {DOC} {tot_pg} стр.\n\n"
+            f"{price_hint}\n\n"
             f"{_sep()}\n\n"
             f"🔢 *Сколько копий напечатать?*\n\n"
             f"👆 Нажми кнопку или *напиши число* в чат:",

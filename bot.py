@@ -406,7 +406,7 @@ def save_order(uid, s):
         dlabel = DELIVERY_METHODS.get(s["delivery_method"], ("Самовывоз",""))[0]
 
         with open(os.path.join(folder, "информация_о_заказе.txt"), "w", encoding="utf-8") as f:
-            f.write(f"ЗАКАЗ {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}\n{'='*50}\n\n")
+            f.write("ЗАКАЗ " + datetime.now().strftime("%d.%m.%Y %H:%M:%S") + "\n" + "="*50 + "\n\n")
             f.write(f"Клиент: {s['user_info']['first_name']} (@{uname})\nID: {uid}\n\n")
             if ph:
                 fn = {"small":"10×15/A6","medium":"13×18","large":"A4"}

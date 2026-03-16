@@ -596,7 +596,11 @@ def flush_group(uid, mgid, context):
         group_timers.pop(f"{uid}_{mgid}", None)
         if uid not in user_sessions: init_session(uid, msgs[0].from_user)
         for msg in msgs: _add_file_from_msg(uid, msg)
-        send_file_summary(uid, context)
+        # state от flush_group нельзя вернуть напрямую (вызывается из Timer),
+        # поэтому сохраняем в сессии
+        next_st = send_file_summary(uid, context)
+        if next_st and uid in user_sessions:
+            user_sessions[uid]["_conv_state"] = next_st
     except Exception as e:
         logger.error(f"flush_group: {e}\n{traceback.format_exc()}")
 
@@ -605,8 +609,7 @@ def process_single_file(update, context):
     msg = update.message
     if uid not in user_sessions: init_session(uid, update.effective_user)
     _add_file_from_msg(uid, msg)
-    send_file_summary(uid, context, reply_fn=msg.reply_text)
-    return COLLECTING_FILES
+    return send_file_summary(uid, context, reply_fn=msg.reply_text)
 
 def _add_file_from_msg(uid, msg):
     s = user_sessions.get(uid)
@@ -645,7 +648,7 @@ def send_file_summary(uid, context, reply_fn=None):
     tp = s["total_photos"]; td = s["total_pages"]
     total_items = tp + td
 
-    lines = ["✅ *Файлы приняты*", ""]
+    lines = ["🎉 *Файлы приняты!*", ""]
     if ph: lines.append(f"📸 Фото:       {len(ph)} файл(а)  /  {tp} шт.")
     if dc: lines.append(f"📄 Документы:  {len(dc)} файл(а)  /  {td} стр.")
     lines.append(f"📦 Всего:      {total_items} шт.")
@@ -657,7 +660,7 @@ def send_file_summary(uid, context, reply_fn=None):
         need = MIN_ITEMS - total_items
         lines += [
             f"⚠️ *Минимальный заказ — {MIN_ITEMS} шт.*",
-            f"Добавь ещё *{need} шт.* или страниц — и можно заказывать.",
+            f"➕ Добавь ещё *{need} шт.* — и можно заказывать!",
             "",
         ]
         kbd = InlineKeyboardMarkup([
@@ -667,7 +670,7 @@ def send_file_summary(uid, context, reply_fn=None):
         txt = "\n".join(lines)
         if reply_fn: reply_fn(txt, reply_markup=kbd, parse_mode="Markdown")
         else: context.bot.send_message(chat_id=uid, text=txt, reply_markup=kbd, parse_mode="Markdown")
-        return
+        return COLLECTING_FILES
 
     # Показываем актуальный прайс
     if ph:
@@ -685,19 +688,20 @@ def send_file_summary(uid, context, reply_fn=None):
     lines.append(dot())
     lines.append("")
 
-    # Определяем следующий шаг
+    # Следующий шаг
     if ph:
-        lines.append("📸 *Выбери формат для фото:*")
+        lines.append("🖼 *Выбери формат для фото:*")
         kbd = kbd_photo_format()
         next_state = SEL_PHOTO_FORMAT
     else:
-        lines.append("📄 *Выбери тип печати документов:*")
+        lines.append("🖨 *Выбери тип печати документов:*")
         kbd = kbd_doc_type()
         next_state = SEL_DOC_TYPE
 
     txt = "\n".join(lines)
     if reply_fn: reply_fn(txt, reply_markup=kbd, parse_mode="Markdown")
     else: context.bot.send_message(chat_id=uid, text=txt, reply_markup=kbd, parse_mode="Markdown")
+    return next_state
 
 # ═══════════════════════════════════════════
 #  РАСЧЁТ ИТОГА
@@ -809,13 +813,13 @@ def cmd_start(update, context):
     disc = loyalty_discount(uid)
 
     if n > 0:
-        hi = f"С возвращением, *{user.first_name}*!\n🛍 Заказов: *{n}*"
+        hi = f"С возвращением, *{user.first_name}*! 👋\n🛍 Заказов: *{n}*"
     else:
-        hi = f"Привет, *{user.first_name}*!"
+        hi = f"Привет, *{user.first_name}*! 👋"
     if disc: hi += f"  |  👑 Скидка: *{disc}%*"
 
     text = (
-        f"🖨 *Сервис быстрой печати*\n\n"
+        f"🖨✨ *Сервис быстрой печати*\n\n"
         f"{hi}\n\n"
         f"Что печатаем:\n"
         f"📸 Фото любых форматов\n"
@@ -823,7 +827,7 @@ def cmd_start(update, context):
         f"📚 Курсовые, дипломы, рефераты\n"
         f"📂 Копии и сканирование\n\n"
         f"{dot()}\n\n"
-        f"Отправь файлы — и я всё посчитаю.\n"
+        f"📎 Отправь файлы — и я всё посчитаю.\n"
         f"В один заказ можно и фото и документы.\n"
         f"*Минимум {MIN_ITEMS} штук/листов.*"
     )
@@ -1269,7 +1273,7 @@ def button_handler(update, context):
             disc   = s.get("discount", 0)
 
             lines = [
-                "✅ *Заказ оформлен!*", "",
+                "🎊🎉 *Заказ оформлен!* 🎉🎊", "",
                 f"🆔 `{oid}`",
                 f"👤 {s['user_info']['first_name']}",
                 "",
@@ -1282,7 +1286,7 @@ def button_handler(update, context):
                 lines.append(f"👑 Скидка: {disc}%")
             lines += [
                 "",
-                f"💰 *{s['total']} ₽*",
+                f"💰 *Итого: {s['total']} ₽*",
                 f"⏱ Срок: {estimate_delivery(tp+td)}",
                 f"🚚 {dlabel}",
             ]
@@ -1295,7 +1299,7 @@ def button_handler(update, context):
                 f"📌 Статус: {get_status_display('new')}",
                 "🔔 Уведомлю при изменении статуса.",
                 "",
-                "Спасибо за заказ! 💙",
+                "💙 Спасибо за заказ!",
             ]
             # подсказка до следующей скидки
             c2 = get_client(uid)

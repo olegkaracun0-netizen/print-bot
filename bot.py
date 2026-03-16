@@ -2045,7 +2045,19 @@ def webhook():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "bot_ready": dispatcher is not None})
+    return jsonify({
+        "status":    "ok",
+        "bot_ready": dispatcher is not None,
+        "sessions":  len(user_sessions),
+    })
+
+@app.route("/reinit")
+def reinit():
+    """Перезапускает бота вручную без деплоя."""
+    global bot, updater, dispatcher
+    bot = updater = dispatcher = None
+    threading.Thread(target=_init_bot, daemon=True).start()
+    return jsonify({"status": "reinit started"})
 
 @app.route("/stats")
 def stats():
@@ -2118,72 +2130,122 @@ print(f"👤  Admin:   {ADMIN_CHAT_ID}")
 print(f"🤖  AI:      {'✅ OpenRouter включён' if OPENROUTER_API_KEY else '❌ OPENROUTER_API_KEY не задан'}")
 print("=" * 55)
 
-bot        = telegram.Bot(token=TOKEN)
-updater    = Updater(token=TOKEN, use_context=True)
-dispatcher = updater.dispatcher
-
-conv = ConversationHandler(
-    entry_points=[
-        CommandHandler("start",     start),
-        CommandHandler("myorders",  cmd_myorders),
-        CommandHandler("prices",    cmd_prices),
-        CommandHandler("ai",        cmd_ai),
-        CommandHandler("help",      cmd_help),
-        MessageHandler(Filters.document | Filters.photo, handle_file),
-    ],
-    states={
-        WAITING_FOR_FILE: [
+def _build_conv():
+    """Создаёт ConversationHandler."""
+    return ConversationHandler(
+        entry_points=[
+            CommandHandler("start",     start),
+            CommandHandler("myorders",  cmd_myorders),
+            CommandHandler("prices",    cmd_prices),
+            CommandHandler("ai",        cmd_ai),
+            CommandHandler("help",      cmd_help),
             MessageHandler(Filters.document | Filters.photo, handle_file),
-            CallbackQueryHandler(button_handler),
         ],
-        SELECTING_PHOTO_FORMAT: [
-            CallbackQueryHandler(button_handler, pattern="^photo_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
+        states={
+            WAITING_FOR_FILE: [
+                MessageHandler(Filters.document | Filters.photo, handle_file),
+                CallbackQueryHandler(button_handler),
+            ],
+            SELECTING_PHOTO_FORMAT: [
+                CallbackQueryHandler(button_handler, pattern="^photo_.*"),
+                CallbackQueryHandler(button_handler, pattern="^cancel$"),
+            ],
+            SELECTING_DOC_TYPE: [
+                CallbackQueryHandler(button_handler, pattern="^doc_.*"),
+                CallbackQueryHandler(button_handler, pattern="^cancel$"),
+            ],
+            ENTERING_QUANTITY: [
+                MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
+                CallbackQueryHandler(button_handler, pattern=r"^qty_\d+$"),
+                CallbackQueryHandler(button_handler, pattern="^qty_hint$"),
+                CallbackQueryHandler(button_handler, pattern="^cancel$"),
+            ],
+            SELECTING_DELIVERY: [
+                CallbackQueryHandler(button_handler, pattern="^delivery_.*"),
+                CallbackQueryHandler(button_handler, pattern="^cancel$"),
+            ],
+            ENTERING_ADDRESS: [
+                MessageHandler(Filters.text & ~Filters.command, handle_address_input),
+                CallbackQueryHandler(button_handler, pattern="^use_last_address$"),
+                CallbackQueryHandler(button_handler, pattern="^cancel$"),
+            ],
+            CONFIRMING_ORDER: [
+                CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
+            ],
+            AI_CHAT: [
+                MessageHandler(Filters.text & ~Filters.command, ai_chat_handler),
+                CallbackQueryHandler(button_handler),
+            ],
+        },
+        fallbacks=[
+            CommandHandler("start",    start),
+            CommandHandler("myorders", cmd_myorders),
+            CommandHandler("prices",   cmd_prices),
+            CommandHandler("ai",       cmd_ai),
+            CommandHandler("help",     cmd_help),
         ],
-        SELECTING_DOC_TYPE: [
-            CallbackQueryHandler(button_handler, pattern="^doc_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
-        ],
-        ENTERING_QUANTITY: [
-            MessageHandler(Filters.text & ~Filters.command, handle_quantity_input),
-            CallbackQueryHandler(button_handler, pattern=r"^qty_\d+$"),
-            CallbackQueryHandler(button_handler, pattern="^qty_hint$"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
-        ],
-        SELECTING_DELIVERY: [
-            CallbackQueryHandler(button_handler, pattern="^delivery_.*"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
-        ],
-        ENTERING_ADDRESS: [
-            MessageHandler(Filters.text & ~Filters.command, handle_address_input),
-            CallbackQueryHandler(button_handler, pattern="^use_last_address$"),
-            CallbackQueryHandler(button_handler, pattern="^cancel$"),
-        ],
-        CONFIRMING_ORDER: [
-            CallbackQueryHandler(button_handler, pattern="^(confirm|cancel|new_order)$"),
-        ],
-        AI_CHAT: [
-            MessageHandler(Filters.text & ~Filters.command, ai_chat_handler),
-            CallbackQueryHandler(button_handler),
-        ],
-    },
-    fallbacks=[
-        CommandHandler("start",    start),
-        CommandHandler("myorders", cmd_myorders),
-        CommandHandler("prices",   cmd_prices),
-        CommandHandler("ai",       cmd_ai),
-        CommandHandler("help",     cmd_help),
-    ],
-    allow_reentry=True,
-)
+        allow_reentry=True,
+    )
 
-dispatcher.add_handler(conv)
+def _init_bot():
+    """Инициализация бота с автоматическим повтором при сетевых ошибках."""
+    global bot, updater, dispatcher
+    if dispatcher is not None:
+        return
 
-wh = f"{RENDER_URL}/webhook"
-updater.bot.set_webhook(url=wh)
-print(f"✅  Webhook: {wh}")
-print("✅  БОТ ГОТОВ!")
-print("=" * 55)
+    max_retries = 10
+    retry_delay = 5   # секунд между попытками
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"🤖  Инициализация бота (попытка {attempt}/{max_retries})...")
+
+            import urllib3
+            from requests import Session
+            from telegram.utils.request import Request as TGRequest
+
+            # Создаём сессию с отключённым keep-alive для избежания SSL-ошибок
+            tg_request = TGRequest(
+                con_pool_size=4,
+                connect_timeout=30,
+                read_timeout=30,
+            )
+
+            bot        = telegram.Bot(token=TOKEN, request=tg_request)
+            updater    = Updater(token=TOKEN, use_context=True,
+                                 request_kwargs={
+                                     "connect_timeout": 30,
+                                     "read_timeout":    30,
+                                 })
+            dispatcher = updater.dispatcher
+            dispatcher.add_handler(_build_conv())
+
+            wh = f"{RENDER_URL}/webhook"
+            bot.set_webhook(url=wh)
+            print(f"✅  Webhook: {wh}")
+            print("✅  БОТ ГОТОВ!")
+            print("=" * 55)
+            return  # успех — выходим
+
+        except Exception as e:
+            err_str = str(e)
+            print(f"❌  Попытка {attempt} провалилась: {err_str[:120]}")
+
+            # Сбрасываем глобальные объекты при неудаче
+            bot = updater = dispatcher = None
+
+            if attempt < max_retries:
+                import time
+                wait = retry_delay * attempt  # нарастающая задержка
+                print(f"⏳  Повтор через {wait} сек...")
+                time.sleep(wait)
+            else:
+                print("❌  Все попытки исчерпаны. Бот не запущен.")
+                traceback.print_exc()
+
+# Запускаем инициализацию в фоне — Gunicorn стартует мгновенно
+threading.Thread(target=_init_bot, daemon=True).start()
 
 if __name__ == "__main__":
+    _init_bot()
     app.run(host="0.0.0.0", port=PORT)

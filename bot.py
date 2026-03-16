@@ -2130,8 +2130,9 @@ print(f"👤  Admin:   {ADMIN_CHAT_ID}")
 print(f"🤖  AI:      {'✅ OpenRouter включён' if OPENROUTER_API_KEY else '❌ OPENROUTER_API_KEY не задан'}")
 print("=" * 55)
 
+import time as _time
+
 def _build_conv():
-    """Создаёт ConversationHandler."""
     return ConversationHandler(
         entry_points=[
             CommandHandler("start",     start),
@@ -2188,63 +2189,30 @@ def _build_conv():
     )
 
 def _init_bot():
-    """Инициализация бота с автоматическим повтором при сетевых ошибках."""
     global bot, updater, dispatcher
     if dispatcher is not None:
         return
-
-    max_retries = 10
-    retry_delay = 5   # секунд между попытками
-
-    for attempt in range(1, max_retries + 1):
+    for attempt in range(1, 11):
         try:
-            print(f"🤖  Инициализация бота (попытка {attempt}/{max_retries})...")
-
-            import urllib3
-            from requests import Session
-            from telegram.utils.request import Request as TGRequest
-
-            # Создаём сессию с отключённым keep-alive для избежания SSL-ошибок
-            tg_request = TGRequest(
-                con_pool_size=4,
-                connect_timeout=30,
-                read_timeout=30,
-            )
-
-            bot        = telegram.Bot(token=TOKEN, request=tg_request)
+            print(f"🤖  Инициализация бота (попытка {attempt}/10)...")
+            bot        = telegram.Bot(token=TOKEN)
             updater    = Updater(token=TOKEN, use_context=True,
-                                 request_kwargs={
-                                     "connect_timeout": 30,
-                                     "read_timeout":    30,
-                                 })
+                                 request_kwargs={"connect_timeout": 30, "read_timeout": 30})
             dispatcher = updater.dispatcher
             dispatcher.add_handler(_build_conv())
-
-            wh = f"{RENDER_URL}/webhook"
-            bot.set_webhook(url=wh)
-            print(f"✅  Webhook: {wh}")
+            bot.set_webhook(url=f"{RENDER_URL}/webhook")
+            print(f"✅  Webhook: {RENDER_URL}/webhook")
             print("✅  БОТ ГОТОВ!")
-            print("=" * 55)
-            return  # успех — выходим
-
+            return
         except Exception as e:
-            err_str = str(e)
-            print(f"❌  Попытка {attempt} провалилась: {err_str[:120]}")
-
-            # Сбрасываем глобальные объекты при неудаче
+            print(f"❌  Попытка {attempt}: {str(e)[:100]}")
             bot = updater = dispatcher = None
+            if attempt < 10:
+                _time.sleep(5 * attempt)
+    print("❌  Бот не запущен после всех попыток.")
 
-            if attempt < max_retries:
-                import time
-                wait = retry_delay * attempt  # нарастающая задержка
-                print(f"⏳  Повтор через {wait} сек...")
-                time.sleep(wait)
-            else:
-                print("❌  Все попытки исчерпаны. Бот не запущен.")
-                traceback.print_exc()
-
-# Запускаем инициализацию в фоне — Gunicorn стартует мгновенно
-threading.Thread(target=_init_bot, daemon=True).start()
+# Инициализируем синхронно — надёжнее чем daemon thread
+_init_bot()
 
 if __name__ == "__main__":
     _init_bot()

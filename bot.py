@@ -1412,16 +1412,20 @@ function upd(id,s){
 </script>"""
 
 def status_btns(oid):
-    b = lambda key,label,cls: f'<button class="sbtn {cls}" onclick="upd(\'{oid}\',\'{key}\')">{label}</button>'
-    return (f'<div class="sbtn-row">'
-            f'{b("new","🆕 Новый","s-new")}'
-            f'{b("processing","🔄 Обработка","s-processing")}'
-            f'{b("printing","🖨 Печать","s-printing")}'
-            f'{b("ready","✅ Готов","s-ready")}'
-            f'{b("shipped","📦 Отправлен","s-shipped")}'
-            f'{b("delivered","🏁 Доставлен","s-delivered")}'
-            f'{b("cancelled","❌ Отменён","s-cancelled")}'
-            f'</div>')
+    def b(key, label, cls):
+        return '<button class="sbtn ' + cls + '" onclick="upd(\"' + oid + '\",\"' + key + '\")">' + label + '</button>'
+    parts = [
+        '<div class="sbtn-row">',
+        b("new","🆕 Новый","s-new"),
+        b("processing","🔄 Обработка","s-processing"),
+        b("printing","🖨 Печать","s-printing"),
+        b("ready","✅ Готов","s-ready"),
+        b("shipped","📦 Отправлен","s-shipped"),
+        b("delivered","🏁 Доставлен","s-delivered"),
+        b("cancelled","❌ Отменён","s-cancelled"),
+        '</div>',
+    ]
+    return "".join(parts)
 
 @app.route("/orders/")
 def list_orders():
@@ -1434,69 +1438,91 @@ def list_orders():
                 if not os.path.isdir(ipath): continue
                 files=[]; photos=[]; tsize=0
                 for fn in os.listdir(ipath):
-                    if fn=="информация_о_заказе.txt": continue
-                    fp=os.path.join(ipath,fn); fsz=os.path.getsize(fp); tsize+=fsz
-                    iph=fn.lower().endswith((".jpg",".jpeg",".png"))
-                    fi={"name":fn,"size":format_size(fsz),"url":f"/orders/{item}/{fn}","is_photo":iph}
+                    if fn == "информация_о_заказе.txt": continue
+                    fp = os.path.join(ipath, fn); fsz = os.path.getsize(fp); tsize += fsz
+                    iph = fn.lower().endswith((".jpg",".jpeg",".png"))
+                    fi = {"name":fn,"size":format_size(fsz),"url":"/orders/"+item+"/"+fn,"is_photo":iph}
                     files.append(fi)
                     if iph: photos.append(fi)
-                ctime=datetime.fromtimestamp(os.path.getctime(ipath))
-                h=hmap.get(item,{})
+                ctime = datetime.fromtimestamp(os.path.getctime(ipath))
+                h = hmap.get(item, {})
+                dlabel = DELIVERY_METHODS.get(h.get("delivery_method","pickup"), ("Самовывоз",""))[0]
                 orders.append({
-                    "id":item,"photos":photos[:4],"fc":len(files),
-                    "size":format_size(tsize),"created":ctime.strftime("%d.%m.%Y %H:%M"),
+                    "id":item, "photos":photos[:4], "fc":len(files),
+                    "size":format_size(tsize), "created":ctime.strftime("%d.%m.%Y %H:%M"),
                     "status":get_status_display(h.get("status","new")),
                     "total":h.get("total_price",""),
-                    "delivery":DELIVERY_METHODS.get(h.get("delivery_method","pickup"),("Самовывоз",""))[0],
+                    "delivery":dlabel,
                     "address":h.get("address",""),
                 })
-        orders.sort(key=lambda x:x["created"],reverse=True)
-        cnt=len(orders); clients=load_clients()
-        revenue=sum(o.get("total_price",0) for o in load_history() if isinstance(o.get("total_price"),int))
+        orders.sort(key=lambda x:x["created"], reverse=True)
+        cnt = len(orders)
+        clients = load_clients()
+        revenue = sum(o.get("total_price",0) for o in load_history() if isinstance(o.get("total_price"),int))
 
-        cards="".join(f"""
-        <div class="card">
-          <div class="card-head">
-            <h2>{o['id']}</h2>
-            <div class="sub">{o['status']} &bull; {o['created']}</div>
-          </div>
-          <div class="card-body">
-            {status_btns(o['id'])}
-            {'<div class="gallery">'+''.join(f'<img src="{p["url"]}" class="thumb" onclick="window.open(\'{p["url"]}\')">' for p in o['photos'])+'</div>' if o['photos'] else ''}
-            <div class="tags">
-              <span class="tag">📁 {o['fc']} файлов</span>
-              <span class="tag">💾 {o['size']}</span>
-              {'<span class="tag">💰 '+str(o['total'])+' ₽</span>' if o['total'] else ''}
-              <span class="tag">🚚 {o['delivery']}</span>
-            </div>
-            {'<div style="font-size:.8em;color:#888;margin-top:6px">📍 '+o['address']+'</div>' if o['address'] else ''}
-            <div class="acts">
-              <a href="/orders/{o['id']}/" class="btn btn-blue">Подробнее</a>
-              <a href="/orders/{o['id']}/download" class="btn btn-green">ZIP</a>
-            </div>
-          </div>
-        </div>""" for o in orders)
+        # Генерируем карточки без вложенных f-строк
+        cards_html = []
+        for o in orders:
+            # gallery
+            gallery_items = []
+            for p in o["photos"]:
+                gallery_items.append(
+                    '<img src="' + p["url"] + '" class="thumb" onclick="window.open('' + p["url"] + '')">'
+                )
+            gallery_html = '<div class="gallery">' + "".join(gallery_items) + '</div>' if o["photos"] else ""
 
-        return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-        <title>Заказы — Print Bot</title>{CSS}{JS_STATUS}</head><body>
-        <div class="wrap">
-          <div class="topbar">
-            <h1>🖨 Print Bot — Заказы</h1>
-            <div class="nav">
-              <a href="/">Главная</a>
-              <a href="/clients">Клиенты</a>
-              <a href="/stats">API</a>
-            </div>
-          </div>
-          <div class="stats-row">
-            <div class="stat-card"><div class="val">{cnt}</div><div class="lbl">заказов</div></div>
-            <div class="stat-card"><div class="val">{len(clients)}</div><div class="lbl">клиентов</div></div>
-            <div class="stat-card"><div class="val">{revenue} ₽</div><div class="lbl">выручка</div></div>
-          </div>
-          <div class="grid">{cards}</div>
-        </div></body></html>"""
+            # tags
+            tags = ['<span class="tag">📁 ' + str(o["fc"]) + ' файлов</span>',
+                    '<span class="tag">💾 ' + o["size"] + '</span>']
+            if o["total"]:
+                tags.append('<span class="tag">💰 ' + str(o["total"]) + ' ₽</span>')
+            tags.append('<span class="tag">🚚 ' + o["delivery"] + '</span>')
+            tags_html = '<div class="tags">' + "".join(tags) + '</div>'
+
+            addr_html = '<div style="font-size:.8em;color:#888;margin-top:6px">📍 ' + o["address"] + '</div>' if o["address"] else ""
+
+            card = (
+                '<div class="card">'
+                '<div class="card-head">'
+                '<h2>' + o["id"] + '</h2>'
+                '<div class="sub">' + o["status"] + ' &bull; ' + o["created"] + '</div>'
+                '</div>'
+                '<div class="card-body">'
+                + status_btns(o["id"]) +
+                gallery_html +
+                tags_html +
+                addr_html +
+                '<div class="acts">'
+                '<a href="/orders/' + o["id"] + '/" class="btn btn-blue">Подробнее</a>'
+                '<a href="/orders/' + o["id"] + '/download" class="btn btn-green">ZIP</a>'
+                '</div>'
+                '</div>'
+                '</div>'
+            )
+            cards_html.append(card)
+
+        html = (
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
+            "<title>Заказы — Print Bot</title>" + CSS + JS_STATUS + "</head><body>"
+            '<div class="wrap">'
+            '<div class="topbar">'
+            "<h1>🖨 Print Bot — Заказы</h1>"
+            '<div class="nav">'
+            '<a href="/">Главная</a>'
+            '<a href="/clients">Клиенты</a>'
+            '<a href="/stats">API</a>'
+            "</div></div>"
+            '<div class="stats-row">'
+            '<div class="stat-card"><div class="val">' + str(cnt) + '</div><div class="lbl">заказов</div></div>'
+            '<div class="stat-card"><div class="val">' + str(len(clients)) + '</div><div class="lbl">клиентов</div></div>'
+            '<div class="stat-card"><div class="val">' + str(revenue) + ' ₽</div><div class="lbl">выручка</div></div>'
+            "</div>"
+            '<div class="grid">' + "".join(cards_html) + "</div>"
+            "</div></body></html>"
+        )
+        return html
     except Exception as e:
-        return f"Ошибка: {e}", 500
+        return "Ошибка: " + str(e), 500
 
 @app.route("/orders/<path:oid>/")
 def view_order(oid):
@@ -1519,8 +1545,15 @@ def view_order(oid):
             files.append(fi); 
             if iph: photos.append(fi)
         ctime=datetime.fromtimestamp(os.path.getctime(opath))
-        ph_html="".join(f'<img src="{p["url"]}" class="thumb" onclick="window.open(\'{p["url"]}\')" style="width:110px;height:110px">' for p in photos)
-        fl_html="".join(f'<a href="{f["url"]}" download style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#f8f9fa;border-radius:10px;text-decoration:none;color:#333;margin-bottom:8px"><span style="font-size:1.4em">{"📸" if f["is_photo"] else "📄"}</span><div><div style="font-weight:600;font-size:.88em">{f["name"]}</div><div style="font-size:.75em;color:#888">{f["size"]}</div></div></a>' for f in files)
+        ph_html = "".join(
+            '<img src="' + p["url"] + '" class="thumb" onclick="window.open(\"' + p["url"] + '\")" style="width:110px;height:110px">'
+            for p in photos)
+        fl_html = "".join(
+            '<a href="' + f["url"] + '" download style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:#f8f9fa;border-radius:10px;text-decoration:none;color:#333;margin-bottom:8px">'
+            '<span style="font-size:1.4em">' + ("📸" if f["is_photo"] else "📄") + '</span>'
+            '<div><div style="font-weight:600;font-size:.88em">' + f["name"] + '</div>'
+            '<div style="font-size:.75em;color:#888">' + f["size"] + '</div></div></a>'
+            for f in files)
         return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
         <title>{oid}</title>{CSS}
         <script>function upd(s){{fetch('/orders/{oid}/status',{{method:'POST',
@@ -1563,7 +1596,9 @@ def list_clients():
             for thr,pct in sorted(LOYALTY_DISCOUNTS.items()):
                 if n>=thr: d=pct
             badge=f'<span class="badge badge-gold">👑 {d}%</span>' if d else "—"
-            rows+=f"<tr><td>{c.get('first_name','')} @{c.get('username','')}</td><td>{n}</td><td>{spent} ₽</td><td>{badge}</td><td style='color:#888'>{c.get('last_seen','')[:10]}</td></tr>"
+            fname = c.get("first_name",""); uname = c.get("username","")
+            last = c.get("last_seen","")[:10]
+            rows += ("<tr><td>" + fname + " @" + uname + "</td><td>" + str(n) + "</td><td>" + str(spent) + " ₽</td><td>" + badge + "</td><td style='color:#888'>" + last + "</td></tr>")
         return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
         <title>Клиенты</title>{CSS}</head><body><div class="wrap">
           <div class="topbar"><h1>👥 Клиентская база</h1>
